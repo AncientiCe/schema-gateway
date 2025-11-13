@@ -29,7 +29,7 @@ routes:
 
     // When: Run with --validate-config
     let output = Command::new("cargo")
-        .args(&["run", "--", "--validate-config", "--config"])
+        .args(["run", "--", "--validate-config", "--config"])
         .arg(&config_path)
         .output()
         .expect("failed to execute binary");
@@ -65,7 +65,7 @@ routes: []
 
     // When: Run with --validate-config
     let output = Command::new("cargo")
-        .args(&["run", "--", "--validate-config", "--config"])
+        .args(["run", "--", "--validate-config", "--config"])
         .arg(&config_path)
         .output()
         .expect("failed to execute binary");
@@ -102,7 +102,7 @@ routes:
 
     // When: Run with --validate-config
     let output = Command::new("cargo")
-        .args(&["run", "--", "--validate-config", "--config"])
+        .args(["run", "--", "--validate-config", "--config"])
         .arg(&config_path)
         .output()
         .expect("failed to execute binary");

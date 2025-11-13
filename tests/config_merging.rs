@@ -25,18 +25,18 @@ routes:
     let effective = config.get_effective_config(route);
 
     // Route overrides should win
-    assert_eq!(
-        effective.forward_on_error, false,
+    assert!(
+        !effective.forward_on_error,
         "expected route override for forward_on_error"
     );
-    assert_eq!(
-        effective.add_error_header, false,
+    assert!(
+        !effective.add_error_header,
         "expected route override for add_error_header"
     );
 
     // Route didn't specify add_validation_header, should use global
-    assert_eq!(
-        effective.add_validation_header, false,
+    assert!(
+        !effective.add_validation_header,
         "expected global default for add_validation_header"
     );
 }
@@ -63,16 +63,16 @@ routes:
     let effective = config.get_effective_config(route);
 
     // All values should come from global
-    assert_eq!(
-        effective.forward_on_error, false,
+    assert!(
+        !effective.forward_on_error,
         "expected global value for forward_on_error"
     );
-    assert_eq!(
-        effective.add_error_header, false,
+    assert!(
+        !effective.add_error_header,
         "expected global value for add_error_header"
     );
-    assert_eq!(
-        effective.add_validation_header, true,
+    assert!(
+        effective.add_validation_header,
         "expected global value for add_validation_header"
     );
 }

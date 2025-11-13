@@ -1,0 +1,14 @@
+# Dockerfile for wrk load testing
+FROM alpine:latest
+
+RUN apk add --no-cache \
+    wrk \
+    curl \
+    bash
+
+WORKDIR /scripts
+
+COPY docker/wrk-scripts /scripts
+
+ENTRYPOINT ["/bin/bash", "/scripts/run-tests.sh"]
+

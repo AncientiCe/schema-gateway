@@ -1,0 +1,32 @@
+# Permissive Mode Configuration
+# Forward everything - let upstream handle validation errors
+# Use this for beta/experimental services or when migrating to schema validation
+
+global:
+  forward_on_error: true       # Forward requests even on validation/schema errors
+  add_error_header: true       # Add X-Gateway-Error header with error details
+  add_validation_header: true  # Add X-Schema-Validated header on success
+
+routes:
+  # Beta API - schema may not be finalized yet
+  - path: /api/beta/:resource
+    method: POST
+    schema: ./examples/schemas/user.json  # May fail to load or validate
+    upstream: http://beta-backend:3000
+
+  # Experimental features - let backend decide how to handle errors
+  - path: /api/experimental/:feature
+    method: POST
+    schema: ./examples/schemas/post.json
+    upstream: http://experimental-backend:3000
+
+  # Legacy endpoint being migrated - validate but don't break existing clients
+  - path: /api/legacy/users
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://legacy-backend:3000
+
+  # Passthrough endpoint - no schema, just proxy
+  - path: /api/internal/:service/:action
+    method: POST
+    upstream: http://internal-backend:3000

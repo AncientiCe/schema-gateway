@@ -40,6 +40,6 @@ mod tests {
 
         assert_eq!(cli.config, PathBuf::from("config.yml"));
         assert_eq!(cli.port, 8080);
-        assert_eq!(cli.validate_config, false);
+        assert!(!cli.validate_config);
     }
 }

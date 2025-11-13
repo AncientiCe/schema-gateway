@@ -1,0 +1,20 @@
+# Dockerfile for mock upstream server
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install curl for healthcheck
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy upstream server
+COPY examples/mock-upstream.py /app/mock-upstream.py
+
+# Make executable
+RUN chmod +x /app/mock-upstream.py
+
+EXPOSE 3001
+
+CMD ["python3", "/app/mock-upstream.py"]
+

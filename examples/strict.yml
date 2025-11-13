@@ -1,0 +1,32 @@
+# Strict Mode Configuration
+# Fail fast - any validation error or schema loading error stops the request
+# Use this for production APIs where data quality is critical
+
+global:
+  forward_on_error: false      # Reject requests on any error
+  add_error_header: false      # Don't add error headers (since we're rejecting)
+  add_validation_header: true  # Add X-Schema-Validated header on success
+
+routes:
+  # User creation endpoint - strict validation required
+  - path: /api/v1/users
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://backend:3000
+
+  # Post creation endpoint - strict validation required
+  - path: /api/v1/posts
+    method: POST
+    schema: ./examples/schemas/post.json
+    upstream: http://backend:3000
+
+  # User update endpoint - strict validation required
+  - path: /api/v1/users/:id
+    method: PUT
+    schema: ./examples/schemas/user.json
+    upstream: http://backend:3000
+
+  # Public endpoint without schema - no validation
+  - path: /api/v1/health
+    method: GET
+    upstream: http://backend:3000

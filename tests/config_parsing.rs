@@ -21,9 +21,9 @@ routes:
     assert!(route.schema.is_none());
 
     // Global defaults should be present
-    assert_eq!(config.global.forward_on_error, true);
-    assert_eq!(config.global.add_error_header, true);
-    assert_eq!(config.global.add_validation_header, true);
+    assert!(config.global.forward_on_error);
+    assert!(config.global.add_error_header);
+    assert!(config.global.add_validation_header);
 }
 
 #[test]
@@ -52,9 +52,9 @@ routes:
     let config: Config = serde_yaml::from_str(yaml).expect("parse full config");
 
     // Global config
-    assert_eq!(config.global.forward_on_error, false);
-    assert_eq!(config.global.add_error_header, false);
-    assert_eq!(config.global.add_validation_header, true);
+    assert!(!config.global.forward_on_error);
+    assert!(!config.global.add_error_header);
+    assert!(config.global.add_validation_header);
 
     // Routes
     assert_eq!(config.routes.len(), 2);

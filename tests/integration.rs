@@ -99,7 +99,7 @@ async fn test_full_flow_invalid_request_reject() {
 
     // Since we don't have gateway implementation yet, verify mock expects 0 calls
     // In real implementation, gateway would return 400 here
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
@@ -238,7 +238,7 @@ async fn test_route_not_found() {
 
     // Since we don't have gateway implementation yet, verify mock expects 0 calls
     // In real implementation, gateway would return 404 here
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
@@ -263,5 +263,5 @@ async fn test_method_not_allowed() {
 
     // Since we don't have gateway implementation yet, verify mock expects 0 calls
     // In real implementation, gateway would return 405 here
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }

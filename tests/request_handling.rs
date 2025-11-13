@@ -208,5 +208,5 @@ async fn test_reject_on_validation_failure() {
 
     // In the real implementation, the gateway would return 400 here
     // For now, we just verify the mock setup
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/post.json",
+  "title": "Post",
+  "description": "A blog post with content and metadata",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "Post title"
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Post content (markdown supported)"
+    },
+    "author": {
+      "type": "object",
+      "description": "Author information",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 30
+        }
+      },
+      "required": ["id", "username"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published", "archived"],
+      "description": "Post publication status"
+    },
+    "tags": {
+      "type": "array",
+      "description": "Post tags for categorization",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50,
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "maxItems": 10,
+      "uniqueItems": true
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Publication timestamp (ISO 8601)"
+    },
+    "comments": {
+      "type": "array",
+      "description": "Comments on the post",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "string",
+            "minLength": 1
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["author", "body"]
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata",
+      "properties": {
+        "views": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "likes": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "featured": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "required": ["title", "body", "author", "status"],
+  "additionalProperties": false
+}

@@ -1,0 +1,39 @@
+# Demo Configuration for Schema Gateway
+# Start a simple upstream server, then run the gateway with this config
+
+global:
+  forward_on_error: false      # Strict mode - reject invalid requests
+  add_error_header: true
+  add_validation_header: true
+
+routes:
+  # Valid user creation - will pass validation
+  - path: /api/users
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://localhost:3001
+
+  # Permissive endpoint - forwards even on validation failure
+  - path: /api/beta/users
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://localhost:3001
+    config:
+      forward_on_error: true   # Override to permissive mode
+
+  # Post creation with validation
+  - path: /api/posts
+    method: POST
+    schema: ./examples/schemas/post.json
+    upstream: http://localhost:3001
+
+  # No validation - just proxy
+  - path: /api/health
+    method: GET
+    upstream: http://localhost:3001
+
+  # Path parameters example
+  - path: /api/users/:id
+    method: GET
+    upstream: http://localhost:3001
+

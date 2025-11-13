@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/user.json",
+  "title": "User",
+  "description": "A user object with profile information",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "integer",
+      "description": "Unique identifier for the user",
+      "minimum": 1
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "User's email address"
+    },
+    "username": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 30,
+      "pattern": "^[a-zA-Z0-9_]+$",
+      "description": "Username (alphanumeric and underscore only)"
+    },
+    "name": {
+      "type": "object",
+      "description": "User's full name",
+      "properties": {
+        "first": {
+          "type": "string",
+          "minLength": 1
+        },
+        "last": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["first", "last"]
+    },
+    "age": {
+      "type": "integer",
+      "minimum": 13,
+      "maximum": 120,
+      "description": "User's age (must be 13 or older)"
+    },
+    "address": {
+      "type": "object",
+      "description": "User's address",
+      "properties": {
+        "street": {
+          "type": "string"
+        },
+        "city": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2
+        },
+        "zipcode": {
+          "type": "string",
+          "pattern": "^[0-9]{5}(-[0-9]{4})?$"
+        }
+      },
+      "required": ["city", "state", "zipcode"]
+    },
+    "roles": {
+      "type": "array",
+      "description": "User's roles",
+      "items": {
+        "type": "string",
+        "enum": ["admin", "user", "moderator", "guest"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "active": {
+      "type": "boolean",
+      "description": "Whether the user account is active",
+      "default": true
+    }
+  },
+  "required": ["email", "username", "name"],
+  "additionalProperties": false
+}

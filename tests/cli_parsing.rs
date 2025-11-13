@@ -15,7 +15,7 @@ fn test_default_arguments() {
 
     assert_eq!(cli.config, PathBuf::from("config.yml"));
     assert_eq!(cli.port, 8080);
-    assert_eq!(cli.validate_config, false);
+    assert!(!cli.validate_config);
 }
 
 #[test]
@@ -60,5 +60,5 @@ fn test_validate_config_mode() {
         validate_config: true,
     };
 
-    assert_eq!(cli.validate_config, true);
+    assert!(cli.validate_config);
 }

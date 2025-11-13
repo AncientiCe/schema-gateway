@@ -1,0 +1,59 @@
+# Hybrid Mode Configuration
+# Different behavior for stable vs experimental endpoints
+# Production APIs are strict, experimental APIs are permissive
+
+global:
+  forward_on_error: false      # Default: reject on errors (strict)
+  add_error_header: true       # Add error details in headers
+  add_validation_header: true  # Add validation status headers
+
+routes:
+  # Production API v1 - strict validation (uses global default)
+  - path: /api/v1/users
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://prod-backend:3000
+    # Uses global forward_on_error: false
+
+  - path: /api/v1/posts
+    method: POST
+    schema: ./examples/schemas/post.json
+    upstream: http://prod-backend:3000
+    # Uses global forward_on_error: false
+
+  # Experimental API - permissive validation (override global)
+  - path: /api/experimental/:resource
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://experimental-backend:3000
+    config:
+      forward_on_error: true   # Override: forward despite errors
+
+  # Beta API - permissive (override global)
+  - path: /api/beta/:feature
+    method: POST
+    schema: ./examples/schemas/post.json
+    upstream: http://beta-backend:3000
+    config:
+      forward_on_error: true   # Override: forward despite errors
+      add_error_header: true   # Ensure upstream knows about errors
+
+  # Internal admin API - strict, no error headers for security
+  - path: /api/admin/:action
+    method: POST
+    schema: ./examples/schemas/user.json
+    upstream: http://admin-backend:3000
+    config:
+      forward_on_error: false  # Explicit: strict validation
+      add_error_header: false  # Don't leak error details
+
+  # Public read-only API - no validation needed
+  - path: /api/v1/posts/:id
+    method: GET
+    upstream: http://prod-backend:3000
+    # No schema configured, just proxy
+
+  # Health check - no validation
+  - path: /health
+    method: GET
+    upstream: http://prod-backend:3000

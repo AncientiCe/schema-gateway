@@ -88,7 +88,7 @@ async fn test_reject_on_missing_schema() {
             .contains("does/not/exist"),
         "test setup verification"
     );
-    assert_eq!(mock_server.address().port() > 0, true);
+    assert!(mock_server.address().port() > 0);
 }
 
 #[tokio::test]
