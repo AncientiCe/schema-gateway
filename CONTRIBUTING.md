@@ -23,7 +23,7 @@ We follow a Test-Driven Development (TDD) methodology throughout the project. Al
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/schema-gateway.git
+git clone https://github.com/AncientiCe/schema-gateway.git
 cd schema-gateway
 ```
 

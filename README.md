@@ -18,7 +18,7 @@ A lightweight, composable schema validation proxy written in Rust that validates
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/schema-gateway.git
+git clone https://github.com/AncientiCe/schema-gateway.git
 cd schema-gateway
 
 # Build the project
