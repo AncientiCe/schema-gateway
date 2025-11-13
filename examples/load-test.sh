@@ -4,7 +4,7 @@
 
 set -e
 
-GATEWAY_URL="http://localhost:8080"
+GATEWAY_URL="http://127.0.0.1:8080"
 REQUESTS=1000
 CONCURRENCY=10
 
@@ -60,11 +60,28 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}Test 1: Health Endpoint (No Validation)${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+echo "Sending ${REQUESTS} GET requests with concurrency ${CONCURRENCY}..."
+echo ""
 
-ab -n ${REQUESTS} -c ${CONCURRENCY} \
+# Temporarily disable exit on error for ab command
+set +e
+AB_OUTPUT=$(ab -n ${REQUESTS} -c ${CONCURRENCY} \
    -H "Content-Type: application/json" \
-   "${GATEWAY_URL}/api/health" 2>&1 | \
-   grep -E "(Requests per second|Time per request|Transfer rate|Failed requests)" || true
+   "${GATEWAY_URL}/api/health" 2>&1)
+AB_EXIT_CODE=$?
+set -e
+
+if [ $AB_EXIT_CODE -eq 0 ]; then
+    echo "$AB_OUTPUT" | grep -E "(Requests per second|Time per request|Transfer rate|Failed requests|Complete requests)"
+else
+    echo -e "${YELLOW}Apache Bench failed with exit code ${AB_EXIT_CODE}:${NC}"
+    echo "$AB_OUTPUT"
+    echo ""
+    echo "Possible issues:"
+    echo "  - Is the gateway server running? (cargo run --release -- --config examples/demo-config.yml)"
+    echo "  - Is it listening on ${GATEWAY_URL}?"
+    echo "  - Is the upstream server running? (python3 examples/mock-upstream.py)"
+fi
 
 echo ""
 read -p "Press Enter to continue..."
@@ -74,12 +91,29 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}Test 2: User Creation with Validation${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
+echo "Sending ${REQUESTS} POST requests with concurrency ${CONCURRENCY}..."
+echo ""
 
-ab -n ${REQUESTS} -c ${CONCURRENCY} \
+# Temporarily disable exit on error for ab command
+set +e
+AB_OUTPUT=$(ab -n ${REQUESTS} -c ${CONCURRENCY} \
    -p "$PAYLOAD_FILE" \
    -T "application/json" \
-   "${GATEWAY_URL}/api/users" 2>&1 | \
-   grep -E "(Requests per second|Time per request|Transfer rate|Failed requests)" || true
+   "${GATEWAY_URL}/api/users" 2>&1)
+AB_EXIT_CODE=$?
+set -e
+
+if [ $AB_EXIT_CODE -eq 0 ]; then
+    echo "$AB_OUTPUT" | grep -E "(Requests per second|Time per request|Transfer rate|Failed requests|Complete requests)"
+else
+    echo -e "${YELLOW}Apache Bench failed with exit code ${AB_EXIT_CODE}:${NC}"
+    echo "$AB_OUTPUT"
+    echo ""
+    echo "Possible issues:"
+    echo "  - Is the gateway server running? (cargo run --release -- --config examples/demo-config.yml)"
+    echo "  - Is it listening on ${GATEWAY_URL}?"
+    echo "  - Is the upstream server running? (python3 examples/mock-upstream.py)"
+fi
 
 echo ""
 echo -e "${GREEN}Performance Summary:${NC}"

@@ -174,25 +174,25 @@ pub async fn handle_request(
             upstream = %upstream_url,
             "Request validated successfully"
         );
+
+        // Add validation header to request if configured
+        let mut forwarding_headers = headers;
+        if effective_config.add_validation_header {
+            if let Ok(header_value) = "true".parse() {
+                forwarding_headers.insert("X-Schema-Validated", header_value);
+            }
+        }
+
         let state_guard = state.read().await;
-        let mut response = forward_request(
+        let response = forward_request(
             &state_guard.http_client,
             method,
             &upstream_url,
             path,
-            headers,
+            forwarding_headers,
             body_bytes,
         )
         .await;
-
-        // Add validation header if configured
-        if effective_config.add_validation_header {
-            if let Ok(header_value) = "true".parse() {
-                response
-                    .headers_mut()
-                    .insert("X-Schema-Validated", header_value);
-            }
-        }
 
         drop(state_guard);
         response
@@ -240,25 +240,25 @@ async fn handle_error(
             error = %error_msg,
             "Forwarding request to upstream despite error (forward_on_error: true)"
         );
+
+        // Add error header to request if configured
+        let mut forwarding_headers = ctx.headers;
+        if effective_config.add_error_header {
+            if let Ok(header_value) = error_msg.parse() {
+                forwarding_headers.insert("X-Gateway-Error", header_value);
+            }
+        }
+
         let state_guard = state.read().await;
-        let mut response = forward_request(
+        let response = forward_request(
             &state_guard.http_client,
             ctx.method,
             &ctx.upstream_url,
             &ctx.path,
-            ctx.headers,
+            forwarding_headers,
             ctx.body_bytes,
         )
         .await;
-
-        // Add error header if configured
-        if effective_config.add_error_header {
-            if let Ok(header_value) = error_msg.parse() {
-                response
-                    .headers_mut()
-                    .insert("X-Gateway-Error", header_value);
-            }
-        }
 
         drop(state_guard);
         response
