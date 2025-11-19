@@ -7,6 +7,8 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 fn write_temp_schema_file(contents: &str) -> PathBuf {
     let dir = tempfile::tempdir().expect("create temp dir");
     let path = dir.path().join("schema.json");
@@ -16,50 +18,48 @@ fn write_temp_schema_file(contents: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn test_extract_json_body() {
+async fn test_extract_json_body() -> TestResult {
     // Given: Request with JSON body
     let json_body = json!({
         "name": "Alice",
         "age": 30
     });
 
+    let body_json = serde_json::to_string(&json_body)?;
     let request = Request::builder()
         .method("POST")
         .uri("/api/test")
         .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&json_body).unwrap()))
-        .unwrap();
+        .body(Body::from(body_json))?;
 
     // When: Extract body
     let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
-        .await
-        .expect("read body");
+        .await?;
 
     // Then: Returns parsed JSON
-    let parsed: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
+    let parsed: serde_json::Value = serde_json::from_slice(&bytes)?;
     assert_eq!(parsed, json_body);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_handle_empty_body() {
+async fn test_handle_empty_body() -> TestResult {
     // Given: Request with no body
     let request = Request::builder()
         .method("POST")
         .uri("/api/test")
-        .body(Body::empty())
-        .unwrap();
+        .body(Body::empty())?;
 
     // When: Extract body
-    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
-        .await
-        .expect("read body");
+    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX).await?;
 
     // Then: Body is empty, should be handled gracefully
     assert!(bytes.is_empty(), "expected empty body");
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_handle_invalid_json() {
+async fn test_handle_invalid_json() -> TestResult {
     // Given: Request with malformed JSON
     let invalid_json = "{ this is not valid json }";
 
@@ -67,13 +67,10 @@ async fn test_handle_invalid_json() {
         .method("POST")
         .uri("/api/test")
         .header("content-type", "application/json")
-        .body(Body::from(invalid_json))
-        .unwrap();
+        .body(Body::from(invalid_json))?;
 
     // When: Try to parse body
-    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
-        .await
-        .expect("read body");
+    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX).await?;
 
     let parse_result: Result<serde_json::Value, _> = serde_json::from_slice(&bytes);
 
@@ -82,10 +79,11 @@ async fn test_handle_invalid_json() {
         parse_result.is_err(),
         "expected JSON parse to fail for invalid input"
     );
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_validate_and_forward() {
+async fn test_validate_and_forward() -> TestResult {
     // Given: Valid request matching schema
     let schema_json = r#"{
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -121,14 +119,14 @@ async fn test_validate_and_forward() {
         .post(format!("{}/api/users", mock_server.uri()))
         .json(&json!({"name": "Alice", "age": 30}))
         .send()
-        .await
-        .expect("send request");
+        .await?;
 
     assert_eq!(response.status(), 201);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_forward_on_validation_failure() {
+async fn test_forward_on_validation_failure() -> TestResult {
     // Given: Invalid request, forward_on_error: true
     let schema_json = r#"{
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -165,14 +163,14 @@ async fn test_forward_on_validation_failure() {
         .post(format!("{}/api/users", mock_server.uri()))
         .json(&json!({"name": "Bob"})) // Missing required "email" field
         .send()
-        .await
-        .expect("send request");
+        .await?;
 
     assert_eq!(response.status(), 200);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_reject_on_validation_failure() {
+async fn test_reject_on_validation_failure() -> TestResult {
     // Given: Invalid request, forward_on_error: false
     let schema_json = r#"{
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -209,4 +207,5 @@ async fn test_reject_on_validation_failure() {
     // In the real implementation, the gateway would return 400 here
     // For now, we just verify the mock setup
     assert!(mock_server.address().port() > 0);
+    Ok(())
 }

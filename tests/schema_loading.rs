@@ -39,26 +39,34 @@ fn test_load_valid_schema() {
 fn test_load_missing_schema() {
     let mut cache = SchemaCache::new();
     let missing = PathBuf::from("/definitely/does/not/exist.json");
-    let err = cache.load(&missing).unwrap_err();
-    let msg = format!("{}", err);
-    assert!(
-        msg.contains("Schema not found"),
-        "unexpected error: {}",
-        msg
-    );
+    match cache.load(&missing) {
+        Ok(_) => panic!("loading should fail for missing schema"),
+        Err(err) => {
+            let msg = format!("{}", err);
+            assert!(
+                msg.contains("Schema not found"),
+                "unexpected error: {}",
+                msg
+            );
+        }
+    }
 }
 
 #[test]
 fn test_load_invalid_json() {
     let path = write_temp_schema_file("{ this is not valid json }");
     let mut cache = SchemaCache::new();
-    let err = cache.load(&path).unwrap_err();
-    let msg = format!("{}", err);
-    assert!(
-        msg.contains("Invalid schema JSON"),
-        "unexpected error: {}",
-        msg
-    );
+    match cache.load(&path) {
+        Ok(_) => panic!("loading should fail for invalid schema JSON"),
+        Err(err) => {
+            let msg = format!("{}", err);
+            assert!(
+                msg.contains("Invalid schema JSON"),
+                "unexpected error: {}",
+                msg
+            );
+        }
+    }
 }
 
 #[test]
@@ -70,13 +78,17 @@ fn test_load_invalid_schema_syntax() {
     }"#;
     let path = write_temp_schema_file(schema_json);
     let mut cache = SchemaCache::new();
-    let err = cache.load(&path).unwrap_err();
-    let msg = format!("{}", err);
-    assert!(
-        msg.contains("Invalid schema syntax"),
-        "unexpected error: {}",
-        msg
-    );
+    match cache.load(&path) {
+        Ok(_) => panic!("loading should fail for invalid schema syntax"),
+        Err(err) => {
+            let msg = format!("{}", err);
+            assert!(
+                msg.contains("Invalid schema syntax"),
+                "unexpected error: {}",
+                msg
+            );
+        }
+    }
 }
 
 #[test]

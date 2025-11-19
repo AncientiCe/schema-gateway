@@ -717,10 +717,10 @@ routes:
                 .method("POST")
                 .uri("/api/users")
                 .body(Body::from(r#"{"name":"test"}"#))
-                .unwrap()
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("gateway should return a response");
 
     assert_eq!(response.status(), StatusCode::CREATED);
 }
@@ -765,18 +765,25 @@ routes:
                 .method("POST")
                 .uri("/api/users")
                 .body(Body::from(r#"{"name":"test"}"#))  // Missing email
-                .unwrap()
+                .expect("build request"),
         )
         .await
-        .unwrap();
+        .expect("gateway should return a response");
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     
     let body = response.into_body();
-    let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let bytes = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .expect("read response body");
+    let json: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("parse error response");
     
-    assert!(json["error"].as_str().unwrap().contains("email"));
+    if let Some(error_msg) = json["error"].as_str() {
+        assert!(error_msg.contains("email"));
+    } else {
+        panic!("error response should contain an error string");
+    }
 }
 ```
 

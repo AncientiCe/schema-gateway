@@ -48,13 +48,11 @@ async fn test_forward_on_missing_schema() {
         .expect("send request");
 
     assert_eq!(response.status(), 200);
-    assert!(
-        missing_schema_path
-            .to_str()
-            .unwrap()
-            .contains("does/not/exist"),
-        "test setup verification"
-    );
+    let missing_schema_matches = missing_schema_path
+        .to_str()
+        .map(|s| s.contains("does/not/exist"))
+        .unwrap_or(false);
+    assert!(missing_schema_matches, "test setup verification");
 }
 
 #[tokio::test]
@@ -81,13 +79,11 @@ async fn test_reject_on_missing_schema() {
     // 5. Response body should contain error details
 
     // For now, verify the mock setup (expects 0 calls)
-    assert!(
-        missing_schema_path
-            .to_str()
-            .unwrap()
-            .contains("does/not/exist"),
-        "test setup verification"
-    );
+    let missing_schema_matches = missing_schema_path
+        .to_str()
+        .map(|s| s.contains("does/not/exist"))
+        .unwrap_or(false);
+    assert!(missing_schema_matches, "test setup verification");
     assert!(mock_server.address().port() > 0);
 }
 

@@ -65,10 +65,8 @@ routes:
     assert_eq!(route1.method, "POST");
     assert_eq!(route1.upstream, "http://backend:3000");
     assert!(route1.schema.is_some());
-    assert_eq!(
-        route1.schema.as_ref().unwrap().to_str().unwrap(),
-        "./schemas/user.json"
-    );
+    let schema_path = route1.schema.as_ref().and_then(|p| p.to_str());
+    assert_eq!(schema_path, Some("./schemas/user.json"));
 
     // Route config overrides
     assert_eq!(route1.config.forward_on_error, Some(true));
@@ -100,17 +98,17 @@ routes: []
     // Should parse but validation should fail
     if let Ok(config) = result {
         let validation_result = config.validate();
-        assert!(
-            validation_result.is_err(),
-            "expected validation error for empty routes"
-        );
-        let err = validation_result.unwrap_err();
-        let err_msg = err.to_string().to_lowercase();
-        assert!(
-            err_msg.contains("route") || err_msg.contains("empty"),
-            "error should mention route or empty, got: {}",
-            err
-        );
+        match validation_result {
+            Ok(_) => panic!("validation should fail for empty routes"),
+            Err(err) => {
+                let err_msg = err.to_string().to_lowercase();
+                assert!(
+                    err_msg.contains("route") || err_msg.contains("empty"),
+                    "error should mention route or empty, got: {}",
+                    err
+                );
+            }
+        }
     } else {
         // Alternative: could fail at parse time if we use custom deserialize
         panic!("parsing empty routes should succeed but validation should fail");
@@ -131,16 +129,16 @@ routes:
 
     if let Ok(config) = result {
         let validation_result = config.validate();
-        assert!(
-            validation_result.is_err(),
-            "expected validation error for invalid method"
-        );
-        let err = validation_result.unwrap_err();
-        assert!(
-            err.to_string().contains("method") || err.to_string().contains("INVALID"),
-            "error should mention method or INVALID, got: {}",
-            err
-        );
+        match validation_result {
+            Ok(_) => panic!("validation should fail for invalid method"),
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("method") || err.to_string().contains("INVALID"),
+                    "error should mention method or INVALID, got: {}",
+                    err
+                );
+            }
+        }
     } else {
         panic!("parsing should succeed but validation should fail for invalid method");
     }
@@ -160,16 +158,16 @@ routes:
 
     if let Ok(config) = result {
         let validation_result = config.validate();
-        assert!(
-            validation_result.is_err(),
-            "expected validation error for empty upstream"
-        );
-        let err = validation_result.unwrap_err();
-        assert!(
-            err.to_string().contains("upstream") || err.to_string().contains("empty"),
-            "error should mention upstream or empty, got: {}",
-            err
-        );
+        match validation_result {
+            Ok(_) => panic!("validation should fail for empty upstream"),
+            Err(err) => {
+                assert!(
+                    err.to_string().contains("upstream") || err.to_string().contains("empty"),
+                    "error should mention upstream or empty, got: {}",
+                    err
+                );
+            }
+        }
     } else {
         panic!("parsing should succeed but validation should fail for empty upstream");
     }

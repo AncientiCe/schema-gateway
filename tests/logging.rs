@@ -11,6 +11,8 @@ use schema_gateway::config::Config;
 use schema_gateway::handler::{handle_request, AppState};
 use schema_gateway::schema::SchemaCache;
 
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 fn write_temp_schema_file(contents: &str) -> PathBuf {
     let dir = tempfile::tempdir().expect("create temp dir");
     let path = dir.path().join("schema.json");
@@ -20,7 +22,7 @@ fn write_temp_schema_file(contents: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn test_log_validation_failure() {
+async fn test_log_validation_failure() -> TestResult {
     // Given: Request fails validation
     // The handler logs validation failures at WARN level
     // This test verifies the handler executes without panics when validation fails
@@ -51,7 +53,7 @@ routes:
         mock_server.uri()
     );
 
-    let config: Config = serde_yaml::from_str(&config_yaml).expect("parse config");
+    let config: Config = serde_yaml::from_str(&config_yaml)?;
 
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -71,8 +73,7 @@ routes:
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/users")
-        .body(Body::from(r#"{"name": "Bob"}"#))
-        .unwrap();
+        .body(Body::from(r#"{"name": "Bob"}"#))?;
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
@@ -84,10 +85,11 @@ routes:
 
     // The test passes if no panic occurs and logging is properly configured
     // In a real scenario, you'd capture logs to verify content
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_log_missing_schema() {
+async fn test_log_missing_schema() -> TestResult {
     // Given: Schema file not found
     // The handler logs missing schema errors at WARN level
     // This test verifies the handler executes without panics when schema is missing
@@ -109,7 +111,7 @@ routes:
         mock_server.uri()
     );
 
-    let config: Config = serde_yaml::from_str(&config_yaml).expect("parse config");
+    let config: Config = serde_yaml::from_str(&config_yaml)?;
 
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -129,8 +131,7 @@ routes:
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/users")
-        .body(Body::from(r#"{"name": "Alice"}"#))
-        .unwrap();
+        .body(Body::from(r#"{"name": "Alice"}"#))?;
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
@@ -139,10 +140,11 @@ routes:
 
     // Then: Logs at WARN level (schema not found)
     let _response = handle_request(State(state), method, uri, headers, body).await;
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_log_upstream_error() {
+async fn test_log_upstream_error() -> TestResult {
     // Given: Upstream connection fails
     // The proxy module logs connection failures
     // This test verifies proper error handling and 502 response
@@ -153,7 +155,7 @@ routes:
     upstream: http://localhost:9999
 "#;
 
-    let config: Config = serde_yaml::from_str(config_yaml).expect("parse config");
+    let config: Config = serde_yaml::from_str(config_yaml)?;
 
     let app_state = AppState {
         config,
@@ -167,8 +169,7 @@ routes:
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/users")
-        .body(Body::from(r#"{"name": "Alice"}"#))
-        .unwrap();
+        .body(Body::from(r#"{"name": "Alice"}"#))?;
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
@@ -181,10 +182,11 @@ routes:
 
     // Verify we get a gateway error response
     assert_eq!(response.status(), 502);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_respect_log_level() {
+async fn test_respect_log_level() -> TestResult {
     // Given: Request that would log at WARN level (validation failure)
     // The tracing infrastructure respects log level configuration
     // This test verifies the handler executes properly regardless of log level
@@ -215,7 +217,7 @@ routes:
         mock_server.uri()
     );
 
-    let config: Config = serde_yaml::from_str(&config_yaml).expect("parse config");
+    let config: Config = serde_yaml::from_str(&config_yaml)?;
 
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -235,8 +237,7 @@ routes:
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/users")
-        .body(Body::from(r#"{"name": "Bob"}"#))
-        .unwrap();
+        .body(Body::from(r#"{"name": "Bob"}"#))?;
 
     let (parts, body) = request.into_parts();
     let method = parts.method;
@@ -246,4 +247,5 @@ routes:
     // Then: WARN level logs should be filtered out (not logged)
     // Test passes if no panic and logging respects the ERROR level filter
     let _response = handle_request(State(state), method, uri, headers, body).await;
+    Ok(())
 }
