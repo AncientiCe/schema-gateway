@@ -198,6 +198,19 @@ Upstream services can parse this header to:
 - Return custom error messages to clients
 - Implement fallback behavior for certain error types
 
+## Git Hooks (fmt + clippy)
+
+Enable the repo-provided hooks to ensure formatting and linting run automatically:
+
+```bash
+git config core.hooksPath githooks
+```
+
+The hooks run:
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo +nightly udeps --all-targets --all-features` (if `cargo-udeps` is installed) to flag unused dependencies
+
 ## Validation Header Format
 
 When `add_validation_header: true` and validation succeeds, the gateway adds an `X-Schema-Validated` header:

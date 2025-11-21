@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] Running cargo fmt..."
+cargo fmt --all -- --check
+
+echo "[pre-commit] Running cargo clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+
+if command -v cargo-udeps >/dev/null 2>&1; then
+  echo "[pre-commit] Checking for unused crates with cargo-udeps..."
+  cargo +nightly udeps --all-targets --all-features
+else
+  echo "[pre-commit] Skipping cargo-udeps (not installed). Install with: cargo install cargo-udeps --locked"
+fi
+
+echo "[pre-commit] All checks passed."
