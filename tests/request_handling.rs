@@ -33,8 +33,7 @@ async fn test_extract_json_body() -> TestResult {
         .body(Body::from(body_json))?;
 
     // When: Extract body
-    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
-        .await?;
+    let bytes = axum::body::to_bytes(request.into_body(), usize::MAX).await?;
 
     // Then: Returns parsed JSON
     let parsed: serde_json::Value = serde_json::from_slice(&bytes)?;

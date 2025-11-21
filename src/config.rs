@@ -73,6 +73,8 @@ pub struct Route {
     pub path: String,
     pub method: String,
     pub schema: Option<PathBuf>,
+    #[serde(default)]
+    pub openapi: Option<OpenApiSource>,
     pub upstream: String,
     #[serde(default)]
     pub config: RouteConfig,
@@ -92,6 +94,27 @@ impl Route {
         let method_upper = self.method.to_uppercase();
         if !valid_methods.contains(&method_upper.as_str()) {
             return Err(format!("Invalid HTTP method: {}", self.method));
+        }
+
+        if self.schema.is_some() && self.openapi.is_some() {
+            return Err("Cannot specify both 'schema' and 'openapi' on a route".to_string());
+        }
+
+        if let Some(openapi) = self.openapi.as_ref().map(OpenApiSource::to_options) {
+            if openapi.spec.as_os_str().is_empty() {
+                return Err("OpenAPI spec path cannot be empty".to_string());
+            }
+            if !openapi.spec.exists() {
+                return Err(format!(
+                    "OpenAPI spec does not exist: {}",
+                    openapi.spec.display()
+                ));
+            }
+            if let Some(op_id) = openapi.operation_id.as_ref() {
+                if op_id.trim().is_empty() {
+                    return Err("OpenAPI operation_id cannot be empty".to_string());
+                }
+            }
         }
 
         Ok(())
@@ -158,4 +181,45 @@ pub struct RouteConfig {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum OpenApiSource {
+    Spec(PathBuf),
+    Detailed(OpenApiRouteConfig),
+}
+
+impl OpenApiSource {
+    pub fn to_options(&self) -> OpenApiOptions {
+        match self {
+            OpenApiSource::Spec(path) => OpenApiOptions {
+                spec: path.clone(),
+                operation_id: None,
+            },
+            OpenApiSource::Detailed(cfg) => OpenApiOptions {
+                spec: cfg.spec.clone(),
+                operation_id: cfg.operation_id.clone().filter(|s| !s.trim().is_empty()),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+pub struct OpenApiRouteConfig {
+    pub spec: PathBuf,
+    #[serde(default)]
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenApiOptions {
+    pub spec: PathBuf,
+    pub operation_id: Option<String>,
+}
+
+impl Route {
+    pub fn openapi_options(&self) -> Option<OpenApiOptions> {
+        self.openapi.as_ref().map(OpenApiSource::to_options)
+    }
 }

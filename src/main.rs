@@ -8,7 +8,8 @@ use tokio::sync::RwLock;
 
 use schema_gateway::cli::Cli;
 use schema_gateway::config::Config;
-use schema_gateway::handler::{handle_request, AppState};
+use schema_gateway::handler::{build_http_client, handle_request, AppState};
+use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
 
 #[tokio::main]
@@ -54,7 +55,8 @@ async fn main() {
     let app_state = AppState {
         config,
         schema_cache: SchemaCache::new(),
-        http_client: reqwest::Client::new(),
+        openapi_cache: OpenApiCache::new(),
+        http_client: build_http_client(),
     };
 
     let shared_state = Arc::new(RwLock::new(app_state));

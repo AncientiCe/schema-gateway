@@ -8,7 +8,8 @@ use tokio::sync::RwLock;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 use schema_gateway::config::Config;
-use schema_gateway::handler::{handle_request, AppState};
+use schema_gateway::handler::{build_http_client, handle_request, AppState};
+use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -64,7 +65,8 @@ routes:
     let app_state = AppState {
         config,
         schema_cache: SchemaCache::new(),
-        http_client: reqwest::Client::new(),
+        openapi_cache: OpenApiCache::new(),
+        http_client: build_http_client(),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -122,7 +124,8 @@ routes:
     let app_state = AppState {
         config,
         schema_cache: SchemaCache::new(),
-        http_client: reqwest::Client::new(),
+        openapi_cache: OpenApiCache::new(),
+        http_client: build_http_client(),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -160,7 +163,8 @@ routes:
     let app_state = AppState {
         config,
         schema_cache: SchemaCache::new(),
-        http_client: reqwest::Client::new(),
+        openapi_cache: OpenApiCache::new(),
+        http_client: build_http_client(),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -228,7 +232,8 @@ routes:
     let app_state = AppState {
         config,
         schema_cache: SchemaCache::new(),
-        http_client: reqwest::Client::new(),
+        openapi_cache: OpenApiCache::new(),
+        http_client: build_http_client(),
     };
 
     let state = Arc::new(RwLock::new(app_state));

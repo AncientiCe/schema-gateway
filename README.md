@@ -1,10 +1,11 @@
 # Schema Gateway
 
-A lightweight, composable schema validation proxy written in Rust that validates JSON requests against JSON Schema before forwarding them to upstream services.
+A lightweight, composable schema validation proxy written in Rust that validates JSON requests against JSON Schema or OpenAPI operations before forwarding them to upstream services.
 
 ## Features
 
 - 🔍 **JSON Schema Validation** - Validate requests against JSON Schema (Draft 2020-12)
+- 📘 **OpenAPI Validation** - Reuse existing OpenAPI 3.x specs to validate request bodies and parameters, plus optional JSON response validation
 - 🔀 **Flexible Error Handling** - Forward or reject on validation errors (per-route configurable)
 - 📋 **Informative Headers** - Add validation status and error details to forwarded requests
 - ⚡ **High Performance** - Built with Rust, Tokio, and Axum for maximum throughput
@@ -127,6 +128,31 @@ routes:
     upstream: http://backend:3000
 ```
 
+#### OpenAPI Routes
+
+Instead of referencing a raw JSON Schema file, a route can point at an OpenAPI document. The gateway will load the spec, resolve the matching operation, and validate JSON request bodies using the operation's `requestBody`.
+
+```yaml
+routes:
+  - path: /api/users
+    method: POST
+    openapi: ./specs/api.yaml      # Path to OpenAPI 3.x document (YAML or JSON)
+    upstream: http://backend:3000
+
+  - path: /api/users/:id
+    method: GET
+    openapi:
+      spec: ./specs/api.yaml
+      operation_id: getUser        # Optional: explicitly choose an operationId
+    upstream: http://backend:3000
+```
+
+Notes:
+
+- Routes may use either `schema` **or** `openapi`, but not both.
+- When `operation_id` is not provided, the gateway matches based on the configured path/method (with `:params` matching `{params}` in the spec).
+- The OpenAPI integration validates JSON request bodies **and** path/query/header/cookie parameters. Response bodies declared under `responses[*].content` for JSON media types are also validated before being returned (and forwarded with an `X-Gateway-Error` header when permissive mode is enabled).
+
 ## Error Handling Behavior
 
 The `forward_on_error` flag controls what happens when errors occur:
@@ -174,11 +200,10 @@ Upstream services can parse this header to:
 
 ## Validation Header Format
 
-When `add_validation_header: true` and validation succeeds, the gateway adds:
+When `add_validation_header: true` and validation succeeds, the gateway adds an `X-Schema-Validated` header:
 
-```
-X-Schema-Validated: true
-```
+- `X-Schema-Validated: true` — JSON Schema validation
+- `X-Schema-Validated: openapi` — OpenAPI operation validation
 
 This header indicates to the upstream service that the request has been validated and can be trusted.
 

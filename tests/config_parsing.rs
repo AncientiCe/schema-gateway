@@ -1,4 +1,5 @@
 use schema_gateway::config::Config;
+use tempfile::NamedTempFile;
 
 #[test]
 fn test_parse_minimal_config() {
@@ -171,4 +172,93 @@ routes:
     } else {
         panic!("parsing should succeed but validation should fail for empty upstream");
     }
+}
+
+#[test]
+fn test_parse_openapi_config() {
+    let yaml = r#"
+routes:
+  - path: /api/users
+    method: POST
+    openapi: ./specs/api.yaml
+    upstream: http://backend:3000
+  - path: /api/users/:id
+    method: GET
+    openapi:
+      spec: ./specs/api.yaml
+      operation_id: getUser
+    upstream: http://backend:3000
+"#;
+
+    let config: Config = serde_yaml::from_str(yaml).expect("parse config");
+    assert_eq!(config.routes.len(), 2);
+
+    let route1 = &config.routes[0];
+    let openapi1 = route1.openapi_options().expect("openapi options");
+    assert_eq!(openapi1.spec.to_str(), Some("./specs/api.yaml"));
+    assert!(openapi1.operation_id.is_none());
+
+    let route2 = &config.routes[1];
+    let openapi2 = route2.openapi_options().expect("openapi options");
+    assert_eq!(openapi2.spec.to_str(), Some("./specs/api.yaml"));
+    assert_eq!(openapi2.operation_id.as_deref(), Some("getUser"));
+}
+
+#[test]
+fn test_reject_schema_and_openapi() {
+    let yaml = r#"
+routes:
+  - path: /api/users
+    method: POST
+    schema: ./schemas/user.json
+    openapi: ./specs/api.yaml
+    upstream: http://backend:3000
+"#;
+
+    let config: Config = serde_yaml::from_str(yaml).expect("parse config");
+    let validation_result = config.validate();
+    assert!(validation_result.is_err(), "route should be invalid");
+    let err_msg = validation_result.unwrap_err();
+    assert!(
+        err_msg.contains("Cannot specify both 'schema' and 'openapi'"),
+        "unexpected error: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_openapi_spec_must_exist() {
+    let yaml_missing = r#"
+routes:
+  - path: /api/users
+    method: POST
+    openapi: ./does/not/exist.yaml
+    upstream: http://backend:3000
+"#;
+
+    let config_missing: Config = serde_yaml::from_str(yaml_missing).expect("parse config");
+    let validation_err = config_missing.validate().unwrap_err();
+    assert!(
+        validation_err.contains("OpenAPI spec does not exist"),
+        "unexpected error: {}",
+        validation_err
+    );
+
+    let tmp_file = NamedTempFile::new().expect("create temp spec");
+    let valid_yaml = format!(
+        r#"
+routes:
+  - path: /api/users
+    method: POST
+    openapi: {}
+    upstream: http://backend:3000
+"#,
+        tmp_file.path().display()
+    );
+
+    let valid_config: Config = serde_yaml::from_str(&valid_yaml).expect("parse config");
+    assert!(
+        valid_config.validate().is_ok(),
+        "expected config with existing OpenAPI file to validate"
+    );
 }

@@ -17,6 +17,15 @@ pub enum Error {
     #[error("Invalid schema syntax in {path}: {message}")]
     InvalidSchemaSyntax { path: PathBuf, message: String },
 
+    #[error("OpenAPI spec not found: {path}")]
+    OpenApiNotFound { path: PathBuf },
+
+    #[error("Invalid OpenAPI spec in {path}: {message}")]
+    InvalidOpenApi { path: PathBuf, message: String },
+
+    #[error("OpenAPI error in {path}: {message}")]
+    OpenApi { path: PathBuf, message: String },
+
     #[error(transparent)]
     Io(#[from] io::Error),
 }
