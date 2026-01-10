@@ -273,6 +273,80 @@ This checks:
 - ✅ Upstream URLs are not empty
 - ⚠️  Schema files exist (warning only)
 
+## Metrics and Observability
+
+The gateway exposes Prometheus metrics and health check endpoints for monitoring and observability.
+
+### Metrics Endpoint
+
+The gateway exposes metrics in Prometheus format at `/metrics`:
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+### Available Metrics
+
+- **`http_requests_total`** - Total number of HTTP requests by method, route, and status code
+- **`http_request_duration_seconds`** - Histogram of HTTP request latency
+- **`validation_attempts_total`** - Total number of validation attempts by type (json_schema, openapi, none)
+- **`validation_success_total`** - Total number of successful validations by type
+- **`validation_failures_total`** - Total number of validation failures by type and error type
+- **`upstream_requests_total`** - Total number of upstream requests by status code
+- **`upstream_request_duration_seconds`** - Histogram of upstream request latency
+- **`upstream_errors_total`** - Total number of upstream errors by error type
+- **`schema_cache_hits_total`** - Total number of schema cache hits
+- **`schema_cache_misses_total`** - Total number of schema cache misses
+- **`routes_not_found_total`** - Total number of 404 responses by method
+
+### Health Check Endpoints
+
+The gateway provides three health check endpoints:
+
+- **`/health`** - Basic health check (returns 200 OK if server is running)
+- **`/health/ready`** - Readiness probe (returns 200 OK if server is ready to accept requests, 503 if no routes configured)
+- **`/health/live`** - Liveness probe (returns 200 OK if server process is alive)
+
+```bash
+# Basic health check
+curl http://localhost:8080/health
+
+# Readiness check
+curl http://localhost:8080/health/ready
+
+# Liveness check
+curl http://localhost:8080/health/live
+```
+
+### Prometheus Configuration
+
+To scrape metrics with Prometheus, add the following to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'schema-gateway'
+    static_configs:
+      - targets: ['localhost:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+```
+
+### Example Metrics Query
+
+```promql
+# Request rate per route
+rate(http_requests_total[5m])
+
+# Validation success rate
+rate(validation_success_total[5m]) / rate(validation_attempts_total[5m])
+
+# Average request latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Upstream error rate
+rate(upstream_errors_total[5m])
+```
+
 ## Logging
 
 The gateway uses structured logging via `tracing`. Set the log level using the `RUST_LOG` environment variable:
@@ -502,11 +576,12 @@ Completed:
 - ✅ Route matching with path parameters
 - ✅ CLI interface
 - ✅ Structured logging
+- ✅ Metrics/observability (Prometheus)
+- ✅ Health check endpoints
+- ✅ OpenAPI support
 
 Future enhancements (not in MVP):
-- 🔮 Metrics/observability (Prometheus)
 - 🔮 Schema hot-reloading
-- 🔮 OpenAPI support
 - 🔮 Rate limiting
 - 🔮 Request/response transformations
 

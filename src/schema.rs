@@ -8,7 +8,7 @@ use jsonschema::JSONSchema;
 use serde_json::Value;
 
 pub struct SchemaCache {
-    cache: HashMap<PathBuf, Arc<JSONSchema>>,
+    pub cache: HashMap<PathBuf, Arc<JSONSchema>>,
 }
 
 impl SchemaCache {

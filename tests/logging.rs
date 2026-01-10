@@ -67,6 +67,7 @@ routes:
         schema_cache: SchemaCache::new(),
         openapi_cache: OpenApiCache::new(),
         http_client: build_http_client(),
+        metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -126,6 +127,7 @@ routes:
         schema_cache: SchemaCache::new(),
         openapi_cache: OpenApiCache::new(),
         http_client: build_http_client(),
+        metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -165,6 +167,7 @@ routes:
         schema_cache: SchemaCache::new(),
         openapi_cache: OpenApiCache::new(),
         http_client: build_http_client(),
+        metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };
 
     let state = Arc::new(RwLock::new(app_state));
@@ -234,6 +237,7 @@ routes:
         schema_cache: SchemaCache::new(),
         openapi_cache: OpenApiCache::new(),
         http_client: build_http_client(),
+        metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };
 
     let state = Arc::new(RwLock::new(app_state));
