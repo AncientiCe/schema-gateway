@@ -273,7 +273,7 @@ routes:
 
     // Make a request
     let response = client
-        .post(&format!("{}/api/users", base_url))
+        .post(format!("{}/api/users", base_url))
         .json(&serde_json::json!({"name": "test"}))
         .send()
         .await
@@ -282,7 +282,7 @@ routes:
 
     // Check metrics
     let metrics_response = client
-        .get(&format!("{}/metrics", base_url))
+        .get(format!("{}/metrics", base_url))
         .send()
         .await
         .expect("get metrics");
