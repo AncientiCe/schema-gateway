@@ -66,10 +66,14 @@ pub async fn handle_request(
             let status = StatusCode::BAD_REQUEST;
             let route_label = "unknown";
             let state_guard = state.read().await;
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, route_label, &status.as_u16().to_string()])
                 .inc();
-            state_guard.metrics.http_request_duration_seconds
+            state_guard
+                .metrics
+                .http_request_duration_seconds
                 .with_label_values(&[&method_str, route_label])
                 .observe(start_time.elapsed().as_secs_f64());
             drop(state_guard);
@@ -86,13 +90,19 @@ pub async fn handle_request(
         None => {
             tracing::debug!(method = %method, path = %path, "Route not found");
             let status = StatusCode::NOT_FOUND;
-            state_guard.metrics.routes_not_found_total
+            state_guard
+                .metrics
+                .routes_not_found_total
                 .with_label_values(&[&method_str])
                 .inc();
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, "not_found", &status.as_u16().to_string()])
                 .inc();
-            state_guard.metrics.http_request_duration_seconds
+            state_guard
+                .metrics
+                .http_request_duration_seconds
                 .with_label_values(&[&method_str, "not_found"])
                 .observe(start_time.elapsed().as_secs_f64());
             drop(state_guard);
@@ -162,7 +172,9 @@ async fn forward_without_validation(
     // Record validation attempt (none)
     {
         let state_guard = state.read().await;
-        state_guard.metrics.validation_attempts_total
+        state_guard
+            .metrics
+            .validation_attempts_total
             .with_label_values(&["none"])
             .inc();
         drop(state_guard);
@@ -185,31 +197,39 @@ async fn forward_without_validation(
     let status_code = status.as_u16().to_string();
     drop(state_guard);
 
-        // Record upstream metrics
-        {
-            let state_guard = state.read().await;
-            state_guard.metrics.upstream_requests_total
-                .with_label_values(&[&status_code])
-                .inc();
-            state_guard.metrics.upstream_request_duration_seconds
-                .with_label_values(&[])
-                .observe(upstream_duration);
-            drop(state_guard);
-        }
+    // Record upstream metrics
+    {
+        let state_guard = state.read().await;
+        state_guard
+            .metrics
+            .upstream_requests_total
+            .with_label_values(&[&status_code])
+            .inc();
+        state_guard
+            .metrics
+            .upstream_request_duration_seconds
+            .with_label_values(&[])
+            .observe(upstream_duration);
+        drop(state_guard);
+    }
 
-        // Record final request metrics
-        {
-            let state_guard = state.read().await;
-            state_guard.metrics.http_requests_total
-                .with_label_values(&[&method_str, route_label, &status_code])
-                .inc();
-            state_guard.metrics.http_request_duration_seconds
-                .with_label_values(&[&method_str, route_label])
-                .observe(start_time.elapsed().as_secs_f64());
-            drop(state_guard);
-        }
+    // Record final request metrics
+    {
+        let state_guard = state.read().await;
+        state_guard
+            .metrics
+            .http_requests_total
+            .with_label_values(&[&method_str, route_label, &status_code])
+            .inc();
+        state_guard
+            .metrics
+            .http_request_duration_seconds
+            .with_label_values(&[&method_str, route_label])
+            .observe(start_time.elapsed().as_secs_f64());
+        drop(state_guard);
+    }
 
-        response
+    response
 }
 
 async fn handle_json_schema_validation(
@@ -225,7 +245,9 @@ async fn handle_json_schema_validation(
     // Record validation attempt
     {
         let state_guard = state.read().await;
-        state_guard.metrics.validation_attempts_total
+        state_guard
+            .metrics
+            .validation_attempts_total
             .with_label_values(&["json_schema"])
             .inc();
         drop(state_guard);
@@ -247,7 +269,9 @@ async fn handle_json_schema_validation(
         Err(response) => {
             // Record validation failure for JSON parse error
             let state_guard = state.read().await;
-            state_guard.metrics.validation_failures_total
+            state_guard
+                .metrics
+                .validation_failures_total
                 .with_label_values(&["json_schema", "invalid_json"])
                 .inc();
             drop(state_guard);
@@ -260,7 +284,7 @@ async fn handle_json_schema_validation(
         let was_cached = state_guard.schema_cache.cache.contains_key(&schema_path);
         let schema_result = state_guard.schema_cache.load(&schema_path);
         drop(state_guard);
-        
+
         // Record cache hit/miss
         {
             let state_guard = state.read().await;
@@ -286,7 +310,9 @@ async fn handle_json_schema_validation(
                 // Record validation failure
                 {
                     let state_guard = state.read().await;
-                    state_guard.metrics.validation_failures_total
+                    state_guard
+                        .metrics
+                        .validation_failures_total
                         .with_label_values(&["json_schema", "schema_load_error"])
                         .inc();
                     drop(state_guard);
@@ -309,7 +335,9 @@ async fn handle_json_schema_validation(
         // Record validation success
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_success_total
+            state_guard
+                .metrics
+                .validation_success_total
                 .with_label_values(&["json_schema"])
                 .inc();
             drop(state_guard);
@@ -349,10 +377,14 @@ async fn handle_json_schema_validation(
         // Record upstream metrics
         {
             let state_guard = state.read().await;
-            state_guard.metrics.upstream_requests_total
+            state_guard
+                .metrics
+                .upstream_requests_total
                 .with_label_values(&[&status_code])
                 .inc();
-            state_guard.metrics.upstream_request_duration_seconds
+            state_guard
+                .metrics
+                .upstream_request_duration_seconds
                 .with_label_values(&[])
                 .observe(upstream_duration);
             drop(state_guard);
@@ -361,10 +393,14 @@ async fn handle_json_schema_validation(
         // Record final request metrics
         {
             let state_guard = state.read().await;
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, route_label, &status_code])
                 .inc();
-            state_guard.metrics.http_request_duration_seconds
+            state_guard
+                .metrics
+                .http_request_duration_seconds
                 .with_label_values(&[&method_str, route_label])
                 .observe(start_time.elapsed().as_secs_f64());
             drop(state_guard);
@@ -375,7 +411,9 @@ async fn handle_json_schema_validation(
         // Record validation failure
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_failures_total
+            state_guard
+                .metrics
+                .validation_failures_total
                 .with_label_values(&["json_schema", "validation_failed"])
                 .inc();
             drop(state_guard);
@@ -412,7 +450,9 @@ async fn handle_openapi_validation(
     // Record validation attempt
     {
         let state_guard = state.read().await;
-        state_guard.metrics.validation_attempts_total
+        state_guard
+            .metrics
+            .validation_attempts_total
             .with_label_values(&["openapi"])
             .inc();
         drop(state_guard);
@@ -441,7 +481,9 @@ async fn handle_openapi_validation(
                 // Record validation failure
                 {
                     let state_guard = state.read().await;
-                    state_guard.metrics.validation_failures_total
+                    state_guard
+                        .metrics
+                        .validation_failures_total
                         .with_label_values(&["openapi", "schema_load_error"])
                         .inc();
                     drop(state_guard);
@@ -464,7 +506,9 @@ async fn handle_openapi_validation(
         // Record validation failure for parameter validation
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_failures_total
+            state_guard
+                .metrics
+                .validation_failures_total
                 .with_label_values(&["openapi", "parameter_validation_failed"])
                 .inc();
             drop(state_guard);
@@ -484,7 +528,9 @@ async fn handle_openapi_validation(
         // Record validation failure
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_failures_total
+            state_guard
+                .metrics
+                .validation_failures_total
                 .with_label_values(&["openapi", "missing_body"])
                 .inc();
             drop(state_guard);
@@ -519,7 +565,9 @@ async fn handle_openapi_validation(
             // Record validation failure for JSON parse error
             {
                 let state_guard = state.read().await;
-                state_guard.metrics.validation_failures_total
+                state_guard
+                    .metrics
+                    .validation_failures_total
                     .with_label_values(&["openapi", "invalid_json"])
                     .inc();
                 drop(state_guard);
@@ -534,7 +582,9 @@ async fn handle_openapi_validation(
         // Record validation success
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_success_total
+            state_guard
+                .metrics
+                .validation_success_total
                 .with_label_values(&["openapi"])
                 .inc();
             drop(state_guard);
@@ -575,26 +625,34 @@ async fn handle_openapi_validation(
             let state_guard = state.read().await;
             let status = response.status();
             let status_code = status.as_u16().to_string();
-            state_guard.metrics.upstream_requests_total
+            state_guard
+                .metrics
+                .upstream_requests_total
                 .with_label_values(&[&status_code])
                 .inc();
-            state_guard.metrics.upstream_request_duration_seconds
+            state_guard
+                .metrics
+                .upstream_request_duration_seconds
                 .with_label_values(&[])
                 .observe(upstream_duration);
             drop(state_guard);
         }
 
         let response = validate_openapi_response(response, &plan, &ctx, &effective_config).await;
-        
+
         // Record final request metrics
         {
             let state_guard = state.read().await;
             let status = response.status();
             let status_code = status.as_u16().to_string();
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, route_label, &status_code])
                 .inc();
-            state_guard.metrics.http_request_duration_seconds
+            state_guard
+                .metrics
+                .http_request_duration_seconds
                 .with_label_values(&[&method_str, route_label])
                 .observe(start_time.elapsed().as_secs_f64());
             drop(state_guard);
@@ -605,7 +663,9 @@ async fn handle_openapi_validation(
         // Record validation failure
         {
             let state_guard = state.read().await;
-            state_guard.metrics.validation_failures_total
+            state_guard
+                .metrics
+                .validation_failures_total
                 .with_label_values(&["openapi", "validation_failed"])
                 .inc();
             drop(state_guard);
@@ -679,10 +739,14 @@ async fn handle_error(
         // Record upstream metrics
         {
             let state_guard = state.read().await;
-            state_guard.metrics.upstream_requests_total
+            state_guard
+                .metrics
+                .upstream_requests_total
                 .with_label_values(&[&response_status_code])
                 .inc();
-            state_guard.metrics.upstream_request_duration_seconds
+            state_guard
+                .metrics
+                .upstream_request_duration_seconds
                 .with_label_values(&[])
                 .observe(upstream_duration);
             // Record upstream errors if status indicates error
@@ -692,7 +756,9 @@ async fn handle_error(
                 } else {
                     "client_error"
                 };
-                state_guard.metrics.upstream_errors_total
+                state_guard
+                    .metrics
+                    .upstream_errors_total
                     .with_label_values(&[error_type])
                     .inc();
             }
@@ -702,7 +768,9 @@ async fn handle_error(
         // Record final request metrics
         {
             let state_guard = state.read().await;
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, route_label, &response_status_code])
                 .inc();
             drop(state_guard);
@@ -718,11 +786,13 @@ async fn handle_error(
             status = %error_status,
             "Rejecting request due to error (forward_on_error: false)"
         );
-        
+
         // Record final request metrics
         {
             let state_guard = state.read().await;
-            state_guard.metrics.http_requests_total
+            state_guard
+                .metrics
+                .http_requests_total
                 .with_label_values(&[&method_str, route_label, &status_code])
                 .inc();
             drop(state_guard);

@@ -34,20 +34,19 @@ impl ParameterValidator {
                 .parse::<i64>()
                 .map(|v| Value::Number(v.into()))
                 .map_err(|_| format!("Failed to parse integer for parameter '{}'", self.name)),
-            Some(PrimitiveType::Number) => {
-                match raw.parse::<f64>() {
-                    Ok(v) => {
-                        match serde_json::Number::from_f64(v) {
-                            Some(num) => Ok(Value::Number(num)),
-                            None => Err(format!(
-                                "Invalid number value for parameter '{}' (NaN, Infinity, or out of range)",
-                                self.name
-                            )),
-                        }
-                    }
-                    Err(_) => Err(format!("Failed to parse number for parameter '{}'", self.name)),
-                }
-            }
+            Some(PrimitiveType::Number) => match raw.parse::<f64>() {
+                Ok(v) => match serde_json::Number::from_f64(v) {
+                    Some(num) => Ok(Value::Number(num)),
+                    None => Err(format!(
+                        "Invalid number value for parameter '{}' (NaN, Infinity, or out of range)",
+                        self.name
+                    )),
+                },
+                Err(_) => Err(format!(
+                    "Failed to parse number for parameter '{}'",
+                    self.name
+                )),
+            },
             Some(PrimitiveType::Boolean) => raw
                 .parse::<bool>()
                 .map(Value::Bool)

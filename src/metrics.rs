@@ -25,10 +25,7 @@ impl Metrics {
 
         // HTTP request metrics
         let http_requests_total = CounterVec::new(
-            Opts::new(
-                "http_requests_total",
-                "Total number of HTTP requests",
-            ),
+            Opts::new("http_requests_total", "Total number of HTTP requests"),
             &["method", "route", "status"],
         )?;
         registry.register(Box::new(http_requests_total.clone()))?;
@@ -96,10 +93,7 @@ impl Metrics {
         registry.register(Box::new(upstream_request_duration_seconds.clone()))?;
 
         let upstream_errors_total = CounterVec::new(
-            Opts::new(
-                "upstream_errors_total",
-                "Total number of upstream errors",
-            ),
+            Opts::new("upstream_errors_total", "Total number of upstream errors"),
             &["error_type"],
         )?;
         registry.register(Box::new(upstream_errors_total.clone()))?;
@@ -119,10 +113,7 @@ impl Metrics {
 
         // Route metrics
         let routes_not_found_total = CounterVec::new(
-            Opts::new(
-                "routes_not_found_total",
-                "Total number of 404 responses",
-            ),
+            Opts::new("routes_not_found_total", "Total number of 404 responses"),
             &["method"],
         )?;
         registry.register(Box::new(routes_not_found_total.clone()))?;

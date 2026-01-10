@@ -21,18 +21,12 @@ pub async fn liveness() -> Response {
 /// Readiness probe endpoint
 /// Returns 200 OK if the server is ready to accept requests
 /// Checks that config is loaded and routes are available
-pub async fn readiness(
-    State(state): State<Arc<RwLock<AppState>>>,
-) -> Response {
+pub async fn readiness(State(state): State<Arc<RwLock<AppState>>>) -> Response {
     let state_guard = state.read().await;
-    
+
     // Check if we have at least one route configured
     if state_guard.config.routes.is_empty() {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "No routes configured",
-        )
-            .into_response();
+        return (StatusCode::SERVICE_UNAVAILABLE, "No routes configured").into_response();
     }
 
     (StatusCode::OK, "Ready").into_response()

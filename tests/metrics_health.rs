@@ -23,10 +23,10 @@ async fn create_test_server(config_content: &str) -> (MockServer, u16) {
     // Start mock server first
     let mock_server = MockServer::start().await;
     let mock_uri = mock_server.uri();
-    
+
     // Replace placeholder with mock server URI
     let config_content = config_content.replace("http://localhost:3000", mock_uri.as_str());
-    
+
     let config_path = write_temp_config(&config_content);
     let config = Config::from_file(&config_path).expect("load config");
 

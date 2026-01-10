@@ -4,8 +4,6 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::Router;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use schema_gateway::cli::Cli;
 use schema_gateway::config::Config;
 use schema_gateway::handler::{build_http_client, handle_request, AppState};
@@ -13,6 +11,8 @@ use schema_gateway::health;
 use schema_gateway::metrics::Metrics;
 use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
@@ -55,12 +55,10 @@ async fn main() {
     tracing::info!("Loaded {} route(s)", config.routes.len());
 
     // Initialize metrics
-    let metrics = Arc::new(
-        Metrics::new().unwrap_or_else(|e| {
-            eprintln!("Failed to initialize metrics: {}", e);
-            std::process::exit(1);
-        }),
-    );
+    let metrics = Arc::new(Metrics::new().unwrap_or_else(|e| {
+        eprintln!("Failed to initialize metrics: {}", e);
+        std::process::exit(1);
+    }));
 
     let app_state = AppState {
         config,
