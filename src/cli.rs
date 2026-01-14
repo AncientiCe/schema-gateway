@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "schema-gateway")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "A lightweight schema validation proxy", long_about = None)]
 pub struct Cli {
     /// Path to config file

@@ -568,7 +568,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Roadmap
 
-Current version: **0.1.0** (MVP)
+Current version: **0.2.0** (MVP)
 
 Completed:
 - ✅ JSON Schema validation

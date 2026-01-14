@@ -9,6 +9,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::trace::TraceLayer;
 use wiremock::{matchers::path, Mock, MockServer, ResponseTemplate};
 
 fn write_temp_config(contents: &str) -> PathBuf {
@@ -48,7 +50,33 @@ async fn create_test_server(config_content: &str) -> (MockServer, u16) {
         .route("/health/ready", axum::routing::get(readiness_handler))
         .route("/health/live", axum::routing::get(liveness_handler))
         .route("/*path", axum::routing::any(handler))
-        .with_state(shared_state);
+        .with_state(shared_state)
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                let request_id = request
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+
+                tracing::info_span!(
+                    "http_request",
+                    request_id = %request_id,
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    version = ?request.version(),
+                    route = tracing::field::Empty,
+                    upstream = tracing::field::Empty,
+                )
+            }),
+        )
+        .layer(PropagateRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+        ))
+        .layer(SetRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+            MakeRequestUuid,
+        ));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

@@ -13,6 +13,8 @@ use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::trace::TraceLayer;
 
 #[tokio::main]
 async fn main() {
@@ -77,7 +79,38 @@ async fn main() {
         .route("/health/ready", get(health::readiness))
         .route("/health/live", get(health::liveness))
         .route("/*path", any(handler))
-        .with_state(shared_state);
+        .with_state(shared_state)
+        // Add request IDs + request tracing for observability/adoption.
+        //
+        // Note: layers are applied inside-out (last-added runs first on requests),
+        // so we add TraceLayer first, then Propagate, then SetRequestId last.
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                let request_id = request
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+
+                tracing::info_span!(
+                    "http_request",
+                    request_id = %request_id,
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    version = ?request.version(),
+                    // Filled in later from the handler (once routing is resolved)
+                    route = tracing::field::Empty,
+                    upstream = tracing::field::Empty,
+                )
+            }),
+        )
+        .layer(PropagateRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+        ))
+        .layer(SetRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+            MakeRequestUuid,
+        ));
 
     let addr = format!("127.0.0.1:{}", cli.port);
     let listener = tokio::net::TcpListener::bind(&addr)

@@ -117,6 +117,11 @@ pub async fn handle_request(
     let openapi_options = route.openapi_options();
     let route_pattern = route.path.clone();
 
+    // Enrich the per-request span (created by TraceLayer) with routing info.
+    // This makes all subsequent logs automatically include route/upstream.
+    tracing::Span::current().record("route", route_pattern.as_str());
+    tracing::Span::current().record("upstream", upstream_url.as_str());
+
     drop(state_guard);
 
     let validation_target = if let Some(openapi) = openapi_options {
