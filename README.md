@@ -468,6 +468,7 @@ The gateway is designed for high performance:
 - **Async I/O** - Built on Tokio for non-blocking operations
 - **Zero-copy** - Minimal data copying where possible
 - **Efficient JSON** - Uses `serde_json` for fast parsing
+- **Graceful Shutdown** - Handles SIGTERM/SIGINT for zero-downtime deployments
 
 Expected performance: **>1000 req/s** per core with validation enabled.
 
@@ -579,6 +580,8 @@ Completed:
 - ✅ Metrics/observability (Prometheus)
 - ✅ Health check endpoints
 - ✅ OpenAPI support
+- ✅ Graceful shutdown (SIGTERM/SIGINT)
+- ✅ Security headers
 
 Not yet relevant additions:
 - 🔮 Schema hot-reloading

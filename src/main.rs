@@ -12,8 +12,10 @@ use schema_gateway::metrics::Metrics;
 use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
 use std::sync::Arc;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 #[tokio::main]
@@ -154,6 +156,19 @@ async fn main() {
         .layer(SetRequestIdLayer::new(
             axum::http::HeaderName::from_static("x-request-id"),
             MakeRequestUuid,
+        ))
+        // Add security headers
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::HeaderName::from_static("x-content-type-options"),
+            axum::http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::HeaderName::from_static("x-frame-options"),
+            axum::http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::HeaderName::from_static("x-xss-protection"),
+            axum::http::HeaderValue::from_static("1; mode=block"),
         ));
 
     let addr = format!("127.0.0.1:{}", cli.port);
@@ -167,10 +182,43 @@ async fn main() {
     tracing::info!("Schema Gateway listening on http://{}", addr);
     println!("Schema Gateway listening on http://{}", addr);
 
-    axum::serve(listener, app).await.unwrap_or_else(|e| {
-        eprintln!("Server error: {}", e);
-        std::process::exit(1);
-    });
+    // Setup graceful shutdown
+    let shutdown_signal = async {
+        let ctrl_c = async {
+            signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            signal::unix::signal(signal::unix::SignalKind::terminate())
+                .expect("failed to install signal handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = terminate => {},
+        }
+
+        tracing::info!("Shutdown signal received, starting graceful shutdown...");
+    };
+
+    // Start server with graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Server error: {}", e);
+            std::process::exit(1);
+        });
+
+    tracing::info!("Schema Gateway shutdown complete");
 }
 
 async fn handler(
