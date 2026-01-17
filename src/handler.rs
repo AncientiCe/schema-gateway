@@ -25,6 +25,161 @@ pub struct AppState {
     pub metrics: Arc<Metrics>,
 }
 
+/// Accumulator for batching metrics updates to reduce lock contention
+struct MetricsAccumulator {
+    validation_attempts: Option<&'static str>,
+    validation_success: Option<&'static str>,
+    validation_failures: Vec<(&'static str, &'static str)>,
+    schema_cache_hit: bool,
+    schema_cache_miss: bool,
+    upstream_requests: Option<String>,
+    upstream_duration: Option<f64>,
+    upstream_errors: Vec<&'static str>,
+    http_requests: Option<(String, String, String)>,
+    http_duration: Option<(String, String, f64)>,
+    routes_not_found: Option<String>,
+}
+
+impl MetricsAccumulator {
+    fn new() -> Self {
+        Self {
+            validation_attempts: None,
+            validation_success: None,
+            validation_failures: Vec::new(),
+            schema_cache_hit: false,
+            schema_cache_miss: false,
+            upstream_requests: None,
+            upstream_duration: None,
+            upstream_errors: Vec::new(),
+            http_requests: None,
+            http_duration: None,
+            routes_not_found: None,
+        }
+    }
+
+    fn record_validation_attempt(&mut self, validation_type: &'static str) {
+        self.validation_attempts = Some(validation_type);
+    }
+
+    fn record_validation_success(&mut self, validation_type: &'static str) {
+        self.validation_success = Some(validation_type);
+    }
+
+    fn record_validation_failure(
+        &mut self,
+        validation_type: &'static str,
+        error_type: &'static str,
+    ) {
+        self.validation_failures.push((validation_type, error_type));
+    }
+
+    fn record_schema_cache_hit(&mut self) {
+        self.schema_cache_hit = true;
+    }
+
+    fn record_schema_cache_miss(&mut self) {
+        self.schema_cache_miss = true;
+    }
+
+    fn record_upstream_request(&mut self, status: String, duration: f64) {
+        self.upstream_requests = Some(status);
+        self.upstream_duration = Some(duration);
+    }
+
+    fn record_upstream_error(&mut self, error_type: &'static str) {
+        self.upstream_errors.push(error_type);
+    }
+
+    fn record_http_request(
+        &mut self,
+        method: String,
+        route: String,
+        status: String,
+        duration: f64,
+    ) {
+        self.http_requests = Some((method.clone(), route.clone(), status));
+        self.http_duration = Some((method, route, duration));
+    }
+
+    fn record_route_not_found(&mut self, method: String) {
+        self.routes_not_found = Some(method);
+    }
+
+    /// Flush all accumulated metrics in a single lock acquisition
+    async fn flush(&self, metrics: &Metrics) {
+        if let Some(validation_type) = self.validation_attempts {
+            metrics
+                .validation_attempts_total
+                .with_label_values(&[validation_type])
+                .inc();
+        }
+
+        if let Some(validation_type) = self.validation_success {
+            metrics
+                .validation_success_total
+                .with_label_values(&[validation_type])
+                .inc();
+        }
+
+        for (validation_type, error_type) in &self.validation_failures {
+            metrics
+                .validation_failures_total
+                .with_label_values(&[validation_type, error_type])
+                .inc();
+        }
+
+        if self.schema_cache_hit {
+            metrics.schema_cache_hits_total.inc();
+        }
+
+        if self.schema_cache_miss {
+            metrics.schema_cache_misses_total.inc();
+        }
+
+        if let Some(ref status) = self.upstream_requests {
+            metrics
+                .upstream_requests_total
+                .with_label_values(&[status])
+                .inc();
+        }
+
+        if let Some(duration) = self.upstream_duration {
+            metrics
+                .upstream_request_duration_seconds
+                .with_label_values(&[])
+                .observe(duration);
+        }
+
+        for error_type in &self.upstream_errors {
+            metrics
+                .upstream_errors_total
+                .with_label_values(&[error_type])
+                .inc();
+        }
+
+        if let Some((ref method, ref route, ref status)) = self.http_requests {
+            metrics
+                .http_requests_total
+                .with_label_values(&[method, route, status])
+                .inc();
+        }
+
+        if let Some((ref method, ref route, duration)) = self.http_duration {
+            metrics
+                .http_request_duration_seconds
+                .with_label_values(&[method, route])
+                .observe(duration);
+        }
+
+        if let Some(ref method) = self.routes_not_found {
+            metrics
+                .routes_not_found_total
+                .with_label_values(&[method])
+                .inc();
+        }
+    }
+}
+
 /// Build a reqwest client suitable for the gateway.
 /// We disable system proxy lookups to avoid platform-specific panics in tests.
 pub fn build_http_client() -> reqwest::Client {
@@ -34,7 +189,6 @@ pub fn build_http_client() -> reqwest::Client {
         .expect("Failed to build HTTP client")
 }
 
-#[derive(Clone)]
 struct RequestContext {
     method: Method,
     upstream_url: String,
@@ -42,8 +196,65 @@ struct RequestContext {
     path_and_query: String,
     query: Option<String>,
     headers: HeaderMap,
-    body_bytes: Vec<u8>,
+    body_bytes: Arc<[u8]>,
     route_pattern: String,
+    parsed_json: tokio::sync::Mutex<Option<Value>>,
+    parsed_params: tokio::sync::Mutex<Option<ParsedParams>>,
+}
+
+struct ParsedParams {
+    path_params: HashMap<String, String>,
+    query_params: HashMap<String, Vec<String>>,
+    header_params: HashMap<String, String>,
+    cookie_params: HashMap<String, String>,
+}
+
+impl RequestContext {
+    /// Parse JSON body lazily, caching the result
+    async fn parse_json(&self) -> Result<Value, serde_json::Error> {
+        let mut parsed = self.parsed_json.lock().await;
+        if let Some(ref value) = *parsed {
+            return Ok(value.clone());
+        }
+
+        let value = serde_json::from_slice::<Value>(&self.body_bytes)?;
+        *parsed = Some(value.clone());
+        Ok(value)
+    }
+
+    /// Get parsed parameters lazily, caching the result
+    async fn get_parsed_params(&self, path_template: &str) -> Option<ParsedParams> {
+        let mut parsed = self.parsed_params.lock().await;
+        if let Some(ref params) = *parsed {
+            return Some(ParsedParams {
+                path_params: params.path_params.clone(),
+                query_params: params.query_params.clone(),
+                header_params: params.header_params.clone(),
+                cookie_params: params.cookie_params.clone(),
+            });
+        }
+
+        let path_params = extract_path_params(&self.path, path_template)?;
+        let query_params = parse_query_params(self.query.as_deref());
+        let header_params = build_header_lookup(&self.headers);
+        let cookie_params = parse_cookie_header(&self.headers);
+
+        let params = ParsedParams {
+            path_params: path_params.clone(),
+            query_params: query_params.clone(),
+            header_params: header_params.clone(),
+            cookie_params: cookie_params.clone(),
+        };
+
+        *parsed = Some(ParsedParams {
+            path_params,
+            query_params,
+            header_params,
+            cookie_params,
+        });
+
+        Some(params)
+    }
 }
 
 /// Main request handler for the gateway
@@ -60,22 +271,20 @@ pub async fn handle_request(
     let method_str = method.as_str().to_uppercase();
 
     // Read body
-    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
-        Ok(bytes) => bytes.to_vec(),
+    let body_bytes: Arc<[u8]> = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(bytes) => bytes.to_vec().into(),
         Err(_) => {
             let status = StatusCode::BAD_REQUEST;
             let route_label = "unknown";
+            let mut metrics_acc = MetricsAccumulator::new();
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                route_label.to_string(),
+                status.as_u16().to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
             let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, route_label, &status.as_u16().to_string()])
-                .inc();
-            state_guard
-                .metrics
-                .http_request_duration_seconds
-                .with_label_values(&[&method_str, route_label])
-                .observe(start_time.elapsed().as_secs_f64());
+            metrics_acc.flush(&state_guard.metrics).await;
             drop(state_guard);
             return (status, "Failed to read request body").into_response();
         }
@@ -90,21 +299,15 @@ pub async fn handle_request(
         None => {
             tracing::debug!(method = %method, path = %path, "Route not found");
             let status = StatusCode::NOT_FOUND;
-            state_guard
-                .metrics
-                .routes_not_found_total
-                .with_label_values(&[&method_str])
-                .inc();
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, "not_found", &status.as_u16().to_string()])
-                .inc();
-            state_guard
-                .metrics
-                .http_request_duration_seconds
-                .with_label_values(&[&method_str, "not_found"])
-                .observe(start_time.elapsed().as_secs_f64());
+            let mut metrics_acc = MetricsAccumulator::new();
+            metrics_acc.record_route_not_found(method_str.clone());
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                "not_found".to_string(),
+                status.as_u16().to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
+            metrics_acc.flush(&state_guard.metrics).await;
             drop(state_guard);
             return (status, "Route not found").into_response();
         }
@@ -130,7 +333,7 @@ pub async fn handle_request(
         schema_path.map(ValidationTarget::JsonSchema)
     };
 
-    let ctx = RequestContext {
+    let ctx = Arc::new(RequestContext {
         method,
         upstream_url,
         path,
@@ -139,7 +342,9 @@ pub async fn handle_request(
         headers,
         body_bytes,
         route_pattern,
-    };
+        parsed_json: tokio::sync::Mutex::new(None),
+        parsed_params: tokio::sync::Mutex::new(None),
+    });
 
     match validation_target {
         None => forward_without_validation(ctx, state).await,
@@ -158,43 +363,26 @@ enum ValidationTarget {
 }
 
 async fn forward_without_validation(
-    ctx: RequestContext,
+    ctx: Arc<RequestContext>,
     state: Arc<tokio::sync::RwLock<AppState>>,
 ) -> Response {
     let start_time = Instant::now();
-    let RequestContext {
-        method,
-        upstream_url,
-        path_and_query,
-        headers,
-        body_bytes,
-        route_pattern,
-        ..
-    } = ctx;
-    let method_str = method.as_str().to_uppercase();
-    let route_label = &route_pattern;
+    let method_str = ctx.method.as_str().to_uppercase();
+    let route_label = &ctx.route_pattern;
 
-    // Record validation attempt (none)
-    {
-        let state_guard = state.read().await;
-        state_guard
-            .metrics
-            .validation_attempts_total
-            .with_label_values(&["none"])
-            .inc();
-        drop(state_guard);
-    }
+    let mut metrics_acc = MetricsAccumulator::new();
+    metrics_acc.record_validation_attempt("none");
 
     // Forward request and record upstream metrics
     let upstream_start = Instant::now();
     let state_guard = state.read().await;
     let response = forward_request(
         &state_guard.http_client,
-        method.clone(),
-        &upstream_url,
-        &path_and_query,
-        headers,
-        body_bytes,
+        ctx.method.clone(),
+        &ctx.upstream_url,
+        &ctx.path_and_query,
+        ctx.headers.clone(),
+        ctx.body_bytes.to_vec(),
     )
     .await;
     let upstream_duration = upstream_start.elapsed().as_secs_f64();
@@ -202,134 +390,127 @@ async fn forward_without_validation(
     let status_code = status.as_u16().to_string();
     drop(state_guard);
 
-    // Record upstream metrics
-    {
-        let state_guard = state.read().await;
-        state_guard
-            .metrics
-            .upstream_requests_total
-            .with_label_values(&[&status_code])
-            .inc();
-        state_guard
-            .metrics
-            .upstream_request_duration_seconds
-            .with_label_values(&[])
-            .observe(upstream_duration);
-        drop(state_guard);
-    }
+    metrics_acc.record_upstream_request(status_code.clone(), upstream_duration);
+    metrics_acc.record_http_request(
+        method_str.clone(),
+        route_label.clone(),
+        status_code.clone(),
+        start_time.elapsed().as_secs_f64(),
+    );
 
-    // Record final request metrics
-    {
-        let state_guard = state.read().await;
-        state_guard
-            .metrics
-            .http_requests_total
-            .with_label_values(&[&method_str, route_label, &status_code])
-            .inc();
-        state_guard
-            .metrics
-            .http_request_duration_seconds
-            .with_label_values(&[&method_str, route_label])
-            .observe(start_time.elapsed().as_secs_f64());
-        drop(state_guard);
-    }
+    // Flush all metrics in a single lock acquisition
+    let state_guard = state.read().await;
+    metrics_acc.flush(&state_guard.metrics).await;
+    drop(state_guard);
 
     response
 }
 
 async fn handle_json_schema_validation(
-    ctx: RequestContext,
+    ctx: Arc<RequestContext>,
     schema_path: PathBuf,
     state: Arc<tokio::sync::RwLock<AppState>>,
     effective_config: GlobalConfig,
 ) -> Response {
     let start_time = Instant::now();
     let method_str = ctx.method.as_str().to_uppercase();
-    let route_label = &ctx.route_pattern;
+    let route_label = ctx.route_pattern.clone();
 
-    // Record validation attempt
-    {
-        let state_guard = state.read().await;
-        state_guard
-            .metrics
-            .validation_attempts_total
-            .with_label_values(&["json_schema"])
-            .inc();
-        drop(state_guard);
-    }
+    let mut metrics_acc = MetricsAccumulator::new();
+    metrics_acc.record_validation_attempt("json_schema");
 
+    // Early exit if body is empty
     if ctx.body_bytes.is_empty() {
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "200".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
         return forward_without_validation(ctx, state).await;
     }
 
-    let ctx_for_parse = ctx.clone();
-    let json_value = match parse_json_body_or_handle_error(
-        ctx_for_parse,
-        &effective_config,
-        state.clone(),
-    )
-    .await
-    {
+    // Parse JSON using lazy parsing
+    let json_value = match ctx.parse_json().await {
         Ok(value) => value,
-        Err(response) => {
-            // Record validation failure for JSON parse error
+        Err(e) => {
+            let error_msg = format!("Invalid JSON: {}", e);
+            tracing::warn!(
+                method = %ctx.method,
+                path = %ctx.path,
+                error = %e,
+                "Failed to parse JSON body"
+            );
+            metrics_acc.record_validation_failure("json_schema", "invalid_json");
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                route_label.clone(),
+                "400".to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
             let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_failures_total
-                .with_label_values(&["json_schema", "invalid_json"])
-                .inc();
+            metrics_acc.flush(&state_guard.metrics).await;
             drop(state_guard);
-            return response;
+            return handle_error(
+                &error_msg,
+                &effective_config,
+                ctx,
+                state,
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
         }
     };
 
+    // Try read lock first for cache lookup
     let schema = {
-        let mut state_guard = state.write().await;
-        let was_cached = state_guard.schema_cache.cache.contains_key(&schema_path);
-        let schema_result = state_guard.schema_cache.load(&schema_path);
-        drop(state_guard);
-
-        // Record cache hit/miss
-        {
-            let state_guard = state.read().await;
-            if was_cached {
-                state_guard.metrics.schema_cache_hits_total.inc();
-            } else {
-                state_guard.metrics.schema_cache_misses_total.inc();
-            }
+        let state_guard = state.read().await;
+        if let Some(schema) = state_guard.schema_cache.get(&schema_path) {
+            metrics_acc.record_schema_cache_hit();
             drop(state_guard);
-        }
-
-        match schema_result {
-            Ok(schema) => schema,
-            Err(e) => {
-                let error_msg = format!("{}", e);
-                tracing::warn!(
-                    method = %ctx.method,
-                    path = %ctx.path,
-                    schema_path = %schema_path.display(),
-                    error = %e,
-                    "Failed to load schema"
-                );
-                // Record validation failure
-                {
-                    let state_guard = state.read().await;
-                    state_guard
-                        .metrics
-                        .validation_failures_total
-                        .with_label_values(&["json_schema", "schema_load_error"])
-                        .inc();
+            schema
+        } else {
+            drop(state_guard);
+            // Cache miss - need write lock to insert
+            let mut state_guard = state.write().await;
+            metrics_acc.record_schema_cache_miss();
+            match state_guard.schema_cache.load(&schema_path) {
+                Ok(schema) => {
                     drop(state_guard);
+                    schema
                 }
-                return handle_error(
-                    &error_msg,
-                    &effective_config,
-                    ctx,
-                    state,
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                )
-                .await;
+                Err(e) => {
+                    drop(state_guard);
+                    let error_msg = format!("{}", e);
+                    tracing::warn!(
+                        method = %ctx.method,
+                        path = %ctx.path,
+                        schema_path = %schema_path.display(),
+                        error = %e,
+                        "Failed to load schema"
+                    );
+                    metrics_acc.record_validation_failure("json_schema", "schema_load_error");
+                    metrics_acc.record_http_request(
+                        method_str.clone(),
+                        route_label.clone(),
+                        "500".to_string(),
+                        start_time.elapsed().as_secs_f64(),
+                    );
+                    let state_guard = state.read().await;
+                    metrics_acc.flush(&state_guard.metrics).await;
+                    drop(state_guard);
+                    return handle_error(
+                        &error_msg,
+                        &effective_config,
+                        ctx,
+                        state,
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                    .await;
+                }
             }
         }
     };
@@ -337,16 +518,7 @@ async fn handle_json_schema_validation(
     let validation_result = validate(&schema, &json_value);
 
     if validation_result.valid {
-        // Record validation success
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_success_total
-                .with_label_values(&["json_schema"])
-                .inc();
-            drop(state_guard);
-        }
+        metrics_acc.record_validation_success("json_schema");
 
         tracing::debug!(
             method = %ctx.method,
@@ -355,7 +527,7 @@ async fn handle_json_schema_validation(
             "Request validated successfully"
         );
 
-        let mut forwarding_headers = ctx.headers;
+        let mut forwarding_headers = ctx.headers.clone();
         if effective_config.add_validation_header {
             if let Ok(header_value) = "true".parse() {
                 forwarding_headers.insert("X-Schema-Validated", header_value);
@@ -371,7 +543,7 @@ async fn handle_json_schema_validation(
             &ctx.upstream_url,
             &ctx.path_and_query,
             forwarding_headers,
-            ctx.body_bytes.clone(),
+            ctx.body_bytes.to_vec(),
         )
         .await;
         let upstream_duration = upstream_start.elapsed().as_secs_f64();
@@ -379,51 +551,21 @@ async fn handle_json_schema_validation(
         let status_code = status.as_u16().to_string();
         drop(state_guard);
 
-        // Record upstream metrics
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .upstream_requests_total
-                .with_label_values(&[&status_code])
-                .inc();
-            state_guard
-                .metrics
-                .upstream_request_duration_seconds
-                .with_label_values(&[])
-                .observe(upstream_duration);
-            drop(state_guard);
-        }
+        metrics_acc.record_upstream_request(status_code.clone(), upstream_duration);
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            status_code.clone(),
+            start_time.elapsed().as_secs_f64(),
+        );
 
-        // Record final request metrics
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, route_label, &status_code])
-                .inc();
-            state_guard
-                .metrics
-                .http_request_duration_seconds
-                .with_label_values(&[&method_str, route_label])
-                .observe(start_time.elapsed().as_secs_f64());
-            drop(state_guard);
-        }
+        // Flush all metrics in a single lock acquisition
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
 
         response
     } else {
-        // Record validation failure
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_failures_total
-                .with_label_values(&["json_schema", "validation_failed"])
-                .inc();
-            drop(state_guard);
-        }
-
         let error_msg = format!("Validation failed: {}", validation_result.errors.join(", "));
         tracing::warn!(
             method = %ctx.method,
@@ -431,6 +573,16 @@ async fn handle_json_schema_validation(
             errors = ?validation_result.errors,
             "Validation failed"
         );
+        metrics_acc.record_validation_failure("json_schema", "validation_failed");
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "400".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
         handle_error(
             &error_msg,
             &effective_config,
@@ -443,25 +595,17 @@ async fn handle_json_schema_validation(
 }
 
 async fn handle_openapi_validation(
-    ctx: RequestContext,
+    ctx: Arc<RequestContext>,
     openapi: OpenApiOptions,
     state: Arc<tokio::sync::RwLock<AppState>>,
     effective_config: GlobalConfig,
 ) -> Response {
     let start_time = Instant::now();
     let method_str = ctx.method.as_str().to_uppercase();
-    let route_label = &ctx.route_pattern;
+    let route_label = ctx.route_pattern.clone();
 
-    // Record validation attempt
-    {
-        let state_guard = state.read().await;
-        state_guard
-            .metrics
-            .validation_attempts_total
-            .with_label_values(&["openapi"])
-            .inc();
-        drop(state_guard);
-    }
+    let mut metrics_acc = MetricsAccumulator::new();
+    metrics_acc.record_validation_attempt("openapi");
 
     let plan = {
         let mut state_guard = state.write().await;
@@ -483,16 +627,16 @@ async fn handle_openapi_validation(
                     error = %e,
                     "Failed to load OpenAPI schema"
                 );
-                // Record validation failure
-                {
-                    let state_guard = state.read().await;
-                    state_guard
-                        .metrics
-                        .validation_failures_total
-                        .with_label_values(&["openapi", "schema_load_error"])
-                        .inc();
-                    drop(state_guard);
-                }
+                metrics_acc.record_validation_failure("openapi", "schema_load_error");
+                metrics_acc.record_http_request(
+                    method_str.clone(),
+                    route_label.clone(),
+                    "500".to_string(),
+                    start_time.elapsed().as_secs_f64(),
+                );
+                let state_guard = state.read().await;
+                metrics_acc.flush(&state_guard.metrics).await;
+                drop(state_guard);
                 return handle_error(
                     &error_msg,
                     &effective_config,
@@ -505,23 +649,36 @@ async fn handle_openapi_validation(
         }
     };
 
-    if let Err(response) =
-        validate_openapi_parameters(&plan, &ctx, &effective_config, state.clone()).await
-    {
-        // Record validation failure for parameter validation
+    // Early exit if no parameters to validate
+    if !plan.parameters.is_empty() {
+        if let Err(response) =
+            validate_openapi_parameters(&plan, &ctx, &effective_config, state.clone()).await
         {
+            metrics_acc.record_validation_failure("openapi", "parameter_validation_failed");
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                route_label.clone(),
+                "400".to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
             let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_failures_total
-                .with_label_values(&["openapi", "parameter_validation_failed"])
-                .inc();
+            metrics_acc.flush(&state_guard.metrics).await;
             drop(state_guard);
+            return response;
         }
-        return response;
     }
 
+    // Early exit if no schema and empty body
     if plan.schema.is_none() && ctx.body_bytes.is_empty() {
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "200".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
         return forward_without_validation(ctx, state).await;
     }
 
@@ -530,16 +687,16 @@ async fn handle_openapi_validation(
             "OpenAPI request body required for {} {}",
             plan.method, plan.path_template
         );
-        // Record validation failure
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_failures_total
-                .with_label_values(&["openapi", "missing_body"])
-                .inc();
-            drop(state_guard);
-        }
+        metrics_acc.record_validation_failure("openapi", "missing_body");
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "400".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
         return handle_error(
             &error_msg,
             &effective_config,
@@ -550,50 +707,59 @@ async fn handle_openapi_validation(
         .await;
     }
 
-    let schema = match plan.schema.clone() {
-        Some(schema) => schema,
+    // Use reference instead of clone
+    let schema = match plan.schema.as_ref() {
+        Some(schema) => Arc::clone(schema),
         None => {
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                route_label.clone(),
+                "200".to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
+            let state_guard = state.read().await;
+            metrics_acc.flush(&state_guard.metrics).await;
+            drop(state_guard);
             return forward_without_validation(ctx, state).await;
         }
     };
 
-    let ctx_for_parse = ctx.clone();
-    let json_value = match parse_json_body_or_handle_error(
-        ctx_for_parse,
-        &effective_config,
-        state.clone(),
-    )
-    .await
-    {
+    // Parse JSON using lazy parsing
+    let json_value = match ctx.parse_json().await {
         Ok(value) => value,
-        Err(response) => {
-            // Record validation failure for JSON parse error
-            {
-                let state_guard = state.read().await;
-                state_guard
-                    .metrics
-                    .validation_failures_total
-                    .with_label_values(&["openapi", "invalid_json"])
-                    .inc();
-                drop(state_guard);
-            }
-            return response;
+        Err(e) => {
+            let error_msg = format!("Invalid JSON: {}", e);
+            tracing::warn!(
+                method = %ctx.method,
+                path = %ctx.path,
+                error = %e,
+                "Failed to parse JSON body"
+            );
+            metrics_acc.record_validation_failure("openapi", "invalid_json");
+            metrics_acc.record_http_request(
+                method_str.clone(),
+                route_label.clone(),
+                "400".to_string(),
+                start_time.elapsed().as_secs_f64(),
+            );
+            let state_guard = state.read().await;
+            metrics_acc.flush(&state_guard.metrics).await;
+            drop(state_guard);
+            return handle_error(
+                &error_msg,
+                &effective_config,
+                ctx,
+                state,
+                StatusCode::BAD_REQUEST,
+            )
+            .await;
         }
     };
 
     let validation_result = validate(&schema, &json_value);
 
     if validation_result.valid {
-        // Record validation success
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_success_total
-                .with_label_values(&["openapi"])
-                .inc();
-            drop(state_guard);
-        }
+        metrics_acc.record_validation_success("openapi");
 
         tracing::debug!(
             method = %ctx.method,
@@ -619,63 +785,34 @@ async fn handle_openapi_validation(
             &ctx.upstream_url,
             &ctx.path_and_query,
             forwarding_headers,
-            ctx.body_bytes.clone(),
+            ctx.body_bytes.to_vec(),
         )
         .await;
         let upstream_duration = upstream_start.elapsed().as_secs_f64();
         drop(state_guard);
 
-        // Record upstream metrics before response validation
-        {
-            let state_guard = state.read().await;
-            let status = response.status();
-            let status_code = status.as_u16().to_string();
-            state_guard
-                .metrics
-                .upstream_requests_total
-                .with_label_values(&[&status_code])
-                .inc();
-            state_guard
-                .metrics
-                .upstream_request_duration_seconds
-                .with_label_values(&[])
-                .observe(upstream_duration);
-            drop(state_guard);
-        }
+        let status = response.status();
+        let status_code = status.as_u16().to_string();
+        metrics_acc.record_upstream_request(status_code.clone(), upstream_duration);
 
         let response = validate_openapi_response(response, &plan, &ctx, &effective_config).await;
 
-        // Record final request metrics
-        {
-            let state_guard = state.read().await;
-            let status = response.status();
-            let status_code = status.as_u16().to_string();
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, route_label, &status_code])
-                .inc();
-            state_guard
-                .metrics
-                .http_request_duration_seconds
-                .with_label_values(&[&method_str, route_label])
-                .observe(start_time.elapsed().as_secs_f64());
-            drop(state_guard);
-        }
+        let final_status = response.status();
+        let final_status_code = final_status.as_u16().to_string();
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            final_status_code.clone(),
+            start_time.elapsed().as_secs_f64(),
+        );
+
+        // Flush all metrics in a single lock acquisition
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
 
         response
     } else {
-        // Record validation failure
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .validation_failures_total
-                .with_label_values(&["openapi", "validation_failed"])
-                .inc();
-            drop(state_guard);
-        }
-
         let error_msg = format!("Validation failed: {}", validation_result.errors.join(", "));
         tracing::warn!(
             method = %ctx.method,
@@ -683,6 +820,16 @@ async fn handle_openapi_validation(
             errors = ?validation_result.errors,
             "OpenAPI validation failed"
         );
+        metrics_acc.record_validation_failure("openapi", "validation_failed");
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "400".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
         handle_error(
             &error_msg,
             &effective_config,
@@ -698,13 +845,15 @@ async fn handle_openapi_validation(
 async fn handle_error(
     error_msg: &str,
     effective_config: &GlobalConfig,
-    ctx: RequestContext,
+    ctx: Arc<RequestContext>,
     state: Arc<tokio::sync::RwLock<AppState>>,
     error_status: StatusCode,
 ) -> Response {
     let method_str = ctx.method.as_str().to_uppercase();
-    let route_label = &ctx.route_pattern;
+    let route_label = ctx.route_pattern.clone();
     let status_code = error_status.as_u16().to_string();
+
+    let mut metrics_acc = MetricsAccumulator::new();
 
     if effective_config.forward_on_error {
         // Forward to upstream with error header
@@ -717,7 +866,7 @@ async fn handle_error(
         );
 
         // Add error header to request if configured
-        let mut forwarding_headers = ctx.headers;
+        let mut forwarding_headers = ctx.headers.clone();
         if effective_config.add_error_header {
             if let Ok(header_value) = error_msg.parse() {
                 forwarding_headers.insert("X-Gateway-Error", header_value);
@@ -733,7 +882,7 @@ async fn handle_error(
             &ctx.upstream_url,
             &ctx.path_and_query,
             forwarding_headers,
-            ctx.body_bytes.clone(),
+            ctx.body_bytes.to_vec(),
         )
         .await;
         let upstream_duration = upstream_start.elapsed().as_secs_f64();
@@ -741,45 +890,28 @@ async fn handle_error(
         let response_status_code = response_status.as_u16().to_string();
         drop(state_guard);
 
-        // Record upstream metrics
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .upstream_requests_total
-                .with_label_values(&[&response_status_code])
-                .inc();
-            state_guard
-                .metrics
-                .upstream_request_duration_seconds
-                .with_label_values(&[])
-                .observe(upstream_duration);
-            // Record upstream errors if status indicates error
-            if response_status.is_server_error() || response_status.is_client_error() {
-                let error_type = if response_status.is_server_error() {
-                    "server_error"
-                } else {
-                    "client_error"
-                };
-                state_guard
-                    .metrics
-                    .upstream_errors_total
-                    .with_label_values(&[error_type])
-                    .inc();
-            }
-            drop(state_guard);
+        metrics_acc.record_upstream_request(response_status_code.clone(), upstream_duration);
+        // Record upstream errors if status indicates error
+        if response_status.is_server_error() || response_status.is_client_error() {
+            let error_type = if response_status.is_server_error() {
+                "server_error"
+            } else {
+                "client_error"
+            };
+            metrics_acc.record_upstream_error(error_type);
         }
 
-        // Record final request metrics
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, route_label, &response_status_code])
-                .inc();
-            drop(state_guard);
-        }
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            response_status_code.clone(),
+            upstream_start.elapsed().as_secs_f64(),
+        );
+
+        // Flush all metrics in a single lock acquisition
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
 
         response
     } else {
@@ -792,16 +924,17 @@ async fn handle_error(
             "Rejecting request due to error (forward_on_error: false)"
         );
 
-        // Record final request metrics
-        {
-            let state_guard = state.read().await;
-            state_guard
-                .metrics
-                .http_requests_total
-                .with_label_values(&[&method_str, route_label, &status_code])
-                .inc();
-            drop(state_guard);
-        }
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            status_code.clone(),
+            Instant::now().elapsed().as_secs_f64(),
+        );
+
+        // Flush metrics
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
 
         let error_body = serde_json::json!({
             "error": error_msg
@@ -812,41 +945,14 @@ async fn handle_error(
     }
 }
 
-async fn parse_json_body_or_handle_error(
-    ctx: RequestContext,
-    effective_config: &GlobalConfig,
-    state: Arc<tokio::sync::RwLock<AppState>>,
-) -> Result<Value, Response> {
-    match serde_json::from_slice::<Value>(&ctx.body_bytes) {
-        Ok(v) => Ok(v),
-        Err(e) => {
-            let error_msg = format!("Invalid JSON: {}", e);
-            tracing::warn!(
-                method = %ctx.method,
-                path = %ctx.path,
-                error = %e,
-                "Failed to parse JSON body"
-            );
-            Err(handle_error(
-                &error_msg,
-                effective_config,
-                ctx,
-                state,
-                StatusCode::BAD_REQUEST,
-            )
-            .await)
-        }
-    }
-}
-
 async fn validate_openapi_parameters(
     plan: &OperationValidationPlan,
-    ctx: &RequestContext,
+    ctx: &Arc<RequestContext>,
     effective_config: &GlobalConfig,
     state: Arc<tokio::sync::RwLock<AppState>>,
 ) -> Result<(), Response> {
-    let path_params = extract_path_params(&ctx.path, &plan.path_template);
-    let path_params = match path_params {
+    // Use lazy parameter parsing
+    let parsed_params = match ctx.get_parsed_params(&plan.path_template).await {
         Some(params) => params,
         None => {
             let error_msg = format!(
@@ -856,7 +962,7 @@ async fn validate_openapi_parameters(
             return Err(handle_error(
                 &error_msg,
                 effective_config,
-                ctx.clone(),
+                Arc::clone(ctx),
                 state,
                 StatusCode::BAD_REQUEST,
             )
@@ -864,20 +970,18 @@ async fn validate_openapi_parameters(
         }
     };
 
-    let query_params = parse_query_params(ctx.query.as_deref());
-    let header_params = build_header_lookup(&ctx.headers);
-    let cookie_params = parse_cookie_header(&ctx.headers);
-
     for param in &plan.parameters {
         let raw_value = match param.location {
-            ParameterLocation::Path => path_params.get(&param.name).cloned(),
-            ParameterLocation::Query => query_params
+            ParameterLocation::Path => parsed_params.path_params.get(&param.name).cloned(),
+            ParameterLocation::Query => parsed_params
+                .query_params
                 .get(&param.name)
                 .and_then(|vals| vals.first().cloned()),
-            ParameterLocation::Header => {
-                header_params.get(&param.name.to_ascii_lowercase()).cloned()
-            }
-            ParameterLocation::Cookie => cookie_params.get(&param.name).cloned(),
+            ParameterLocation::Header => parsed_params
+                .header_params
+                .get(&param.name.to_ascii_lowercase())
+                .cloned(),
+            ParameterLocation::Cookie => parsed_params.cookie_params.get(&param.name).cloned(),
         };
 
         let Some(raw_value) = raw_value else {
@@ -890,7 +994,7 @@ async fn validate_openapi_parameters(
                 return Err(handle_error(
                     &error_msg,
                     effective_config,
-                    ctx.clone(),
+                    Arc::clone(ctx),
                     state,
                     StatusCode::BAD_REQUEST,
                 )
@@ -909,7 +1013,7 @@ async fn validate_openapi_parameters(
                 return Err(handle_error(
                     &message,
                     effective_config,
-                    ctx.clone(),
+                    Arc::clone(ctx),
                     state,
                     StatusCode::BAD_REQUEST,
                 )
@@ -928,7 +1032,7 @@ async fn validate_openapi_parameters(
             return Err(handle_error(
                 &error_msg,
                 effective_config,
-                ctx.clone(),
+                Arc::clone(ctx),
                 state,
                 StatusCode::BAD_REQUEST,
             )
@@ -1012,9 +1116,10 @@ fn parameter_location_label(location: ParameterLocation) -> &'static str {
 async fn validate_openapi_response(
     response: Response,
     plan: &OperationValidationPlan,
-    ctx: &RequestContext,
+    ctx: &Arc<RequestContext>,
     effective_config: &GlobalConfig,
 ) -> Response {
+    // Early exit if no response schemas defined
     if plan.response_schemas.is_empty() {
         return response;
     }
@@ -1024,6 +1129,7 @@ async fn validate_openapi_response(
         None => return response,
     };
 
+    // Early exit if not JSON content type
     if !has_json_content_type(response.headers()) {
         return response;
     }
@@ -1047,6 +1153,7 @@ async fn validate_openapi_response(
         }
     };
 
+    // Early exit if body is empty
     if body_bytes.is_empty() {
         return Response::from_parts(parts, Body::from(body_bytes));
     }
@@ -1107,8 +1214,8 @@ fn select_response_schema(
     status: StatusCode,
 ) -> Option<Arc<JSONSchema>> {
     map.get(&ResponseKey::Status(status.as_u16()))
-        .cloned()
-        .or_else(|| map.get(&ResponseKey::Default).cloned())
+        .map(Arc::clone)
+        .or_else(|| map.get(&ResponseKey::Default).map(Arc::clone))
 }
 
 fn has_json_content_type(headers: &HeaderMap) -> bool {

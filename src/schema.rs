@@ -18,6 +18,12 @@ impl SchemaCache {
         }
     }
 
+    /// Get schema from cache (read-only, no lock needed if called on &self)
+    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<JSONSchema>> {
+        let path_buf = PathBuf::from(path.as_ref());
+        self.cache.get(&path_buf).map(Arc::clone)
+    }
+
     pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<Arc<JSONSchema>> {
         let path_ref = path.as_ref();
         let path_buf = PathBuf::from(path_ref);
