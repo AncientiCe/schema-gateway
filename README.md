@@ -1,5 +1,11 @@
 # Schema Gateway
 
+[![CI](https://github.com/AncientiCe/schema-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/AncientiCe/schema-gateway/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.0+-orange.svg)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-0.4.1-blue.svg)](https://github.com/AncientiCe/schema-gateway)
+
+
 A lightweight, composable schema validation proxy written in Rust that validates JSON requests against JSON Schema or OpenAPI operations before forwarding them to upstream services.
 
 ## Features
