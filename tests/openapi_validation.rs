@@ -179,8 +179,8 @@ routes:
     let config: Config = serde_yaml::from_str(&config_yaml)?;
     let app_state = AppState {
         config,
-        schema_cache: SchemaCache::new(),
-        openapi_cache: OpenApiCache::new(),
+        schema_cache: Arc::new(tokio::sync::RwLock::new(SchemaCache::new())),
+        openapi_cache: Arc::new(tokio::sync::RwLock::new(OpenApiCache::new())),
         http_client: build_http_client(),
         metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };
@@ -248,8 +248,8 @@ routes:
     let config: Config = serde_yaml::from_str(&config_yaml)?;
     let app_state = AppState {
         config,
-        schema_cache: SchemaCache::new(),
-        openapi_cache: OpenApiCache::new(),
+        schema_cache: Arc::new(tokio::sync::RwLock::new(SchemaCache::new())),
+        openapi_cache: Arc::new(tokio::sync::RwLock::new(OpenApiCache::new())),
         http_client: build_http_client(),
         metrics: std::sync::Arc::new(schema_gateway::metrics::Metrics::new().unwrap()),
     };

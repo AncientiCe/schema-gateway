@@ -1,12 +1,38 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub routes: Vec<Route>,
-    #[serde(default)]
     pub global: GlobalConfig,
+    // Route index for O(1) lookups - built after deserialization
+    route_index: RouteIndex,
+}
+
+// Custom deserialization to build index after parsing
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct ConfigHelper {
+            routes: Vec<Route>,
+            #[serde(default)]
+            global: GlobalConfig,
+        }
+
+        let helper = ConfigHelper::deserialize(deserializer)?;
+        let mut config = Config {
+            routes: helper.routes,
+            global: helper.global,
+            route_index: RouteIndex::new(),
+        };
+        config.build_route_index();
+        Ok(config)
+    }
 }
 
 impl Config {
@@ -19,7 +45,7 @@ impl Config {
             .map_err(|e| format!("Failed to read config file '{}': {}", path_ref.display(), e))?;
 
         // Parse YAML
-        let config: Config = serde_yaml::from_str(&contents).map_err(|e| {
+        let mut config: Config = serde_yaml::from_str(&contents).map_err(|e| {
             format!(
                 "Failed to parse config file '{}': {}",
                 path_ref.display(),
@@ -27,7 +53,19 @@ impl Config {
             )
         })?;
 
+        // Build route index for fast lookups
+        config.build_route_index();
+
         Ok(config)
+    }
+
+    /// Build the route index for O(1) lookups
+    fn build_route_index(&mut self) {
+        self.route_index = RouteIndex::new();
+        for (idx, route) in self.routes.iter().enumerate() {
+            let method = route.method.to_uppercase();
+            self.route_index.add_route(method, route.path.clone(), idx);
+        }
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -47,6 +85,11 @@ impl Config {
     }
 
     pub fn find_route(&self, path: &str, method: &str) -> Option<&Route> {
+        // Use indexed lookup for O(1) exact matches, O(n) for parameterized routes
+        if let Some(route_idx) = self.route_index.find_route(path, method) {
+            return self.routes.get(route_idx);
+        }
+        // Fallback to linear search (shouldn't happen if index was built correctly)
         self.routes.iter().find(|route| route.matches(path, method))
     }
 
@@ -222,4 +265,91 @@ impl Route {
     pub fn openapi_options(&self) -> Option<OpenApiOptions> {
         self.openapi.as_ref().map(OpenApiSource::to_options)
     }
+}
+
+/// Route index for fast O(1) route lookups by method and path pattern
+#[derive(Debug, Clone)]
+struct RouteIndex {
+    // Index by method -> path pattern -> route index
+    by_method: HashMap<String, HashMap<String, usize>>,
+    // For routes with parameters, we need to check them separately
+    // Store routes with parameters separately for pattern matching
+    param_routes: HashMap<String, Vec<(String, usize)>>,
+}
+
+impl RouteIndex {
+    fn new() -> Self {
+        Self {
+            by_method: HashMap::new(),
+            param_routes: HashMap::new(),
+        }
+    }
+
+    fn add_route(&mut self, method: String, path_pattern: String, route_idx: usize) {
+        // Check if path has parameters
+        let has_params = path_pattern.contains(':');
+
+        if has_params {
+            // Store in param_routes for pattern matching
+            self.param_routes
+                .entry(method.clone())
+                .or_default()
+                .push((path_pattern, route_idx));
+        } else {
+            // Exact match - can use HashMap for O(1) lookup
+            self.by_method
+                .entry(method)
+                .or_default()
+                .insert(path_pattern, route_idx);
+        }
+    }
+
+    fn find_route(&self, path: &str, method: &str) -> Option<usize> {
+        let method_upper = method.to_uppercase();
+
+        // First, try exact match (no parameters)
+        if let Some(method_routes) = self.by_method.get(&method_upper) {
+            if let Some(&route_idx) = method_routes.get(path) {
+                return Some(route_idx);
+            }
+        }
+
+        // If not found, check parameterized routes
+        if let Some(param_routes) = self.param_routes.get(&method_upper) {
+            for (pattern, route_idx) in param_routes {
+                // Use the existing Route::matches logic
+                // We need access to the actual route to call matches, so we'll
+                // do a quick pattern match here
+                if paths_match(path, pattern) {
+                    return Some(*route_idx);
+                }
+            }
+        }
+
+        None
+    }
+}
+
+/// Check if a path matches a pattern (supports :param placeholders)
+fn paths_match(path: &str, pattern: &str) -> bool {
+    let path_segments: Vec<&str> = path.split('/').collect();
+    let pattern_segments: Vec<&str> = pattern.split('/').collect();
+
+    if path_segments.len() != pattern_segments.len() {
+        return false;
+    }
+
+    for (path_seg, pattern_seg) in path_segments.iter().zip(pattern_segments.iter()) {
+        // Segments starting with ':' are wildcards (path parameters)
+        if pattern_seg.starts_with(':') {
+            continue;
+        }
+
+        // Static segments must match exactly
+        if path_seg != pattern_seg {
+            return false;
+        }
+    }
+
+    true
 }

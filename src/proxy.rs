@@ -41,12 +41,16 @@ pub async fn forward_request(
     };
 
     // Add headers to the request (skip certain headers like Host, Connection)
+    // Optimized: single-pass with early filtering to avoid allocations
     for (name, value) in headers.iter() {
-        let name_str = name.as_str().to_lowercase();
-        // Skip headers that shouldn't be forwarded
-        if name_str == "host" || name_str == "connection" {
+        // Check header name directly (case-insensitive comparison without allocation)
+        let name_lower = name.as_str();
+        // Use ASCII lowercase comparison for common headers (faster than full lowercase conversion)
+        if name_lower.eq_ignore_ascii_case("host") || name_lower.eq_ignore_ascii_case("connection")
+        {
             continue;
         }
+        // Only convert to string if we're going to use it
         if let Ok(value_str) = value.to_str() {
             request_builder = request_builder.header(name.as_str(), value_str);
         }

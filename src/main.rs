@@ -62,10 +62,54 @@ async fn main() {
         std::process::exit(1);
     }));
 
+    // Preload schemas and OpenAPI operations for better performance
+    tracing::info!("Preloading schemas and OpenAPI operations...");
+    let mut schema_cache = SchemaCache::new();
+    let mut openapi_cache = OpenApiCache::new();
+
+    // Collect all schema paths from routes
+    let schema_paths: Vec<_> = config
+        .routes
+        .iter()
+        .filter_map(|route| route.schema.clone())
+        .collect();
+
+    // Preload all JSON schemas
+    let schema_errors = schema_cache.preload_all(schema_paths.iter());
+    if !schema_errors.is_empty() {
+        tracing::warn!(
+            "Failed to preload {} schema(s), will load on first use",
+            schema_errors.len()
+        );
+        for (path, error) in &schema_errors {
+            tracing::warn!("  {}: {}", path.display(), error);
+        }
+    } else {
+        tracing::info!("Successfully preloaded all schemas");
+    }
+
+    // Preload all OpenAPI operations
+    let openapi_errors = openapi_cache.preload_routes(&config.routes);
+    if !openapi_errors.is_empty() {
+        tracing::warn!(
+            "Failed to preload {} OpenAPI operation(s), will load on first use",
+            openapi_errors.len()
+        );
+        for (route, error) in &openapi_errors {
+            tracing::warn!("  {}: {}", route, error);
+        }
+    } else {
+        tracing::info!("Successfully preloaded all OpenAPI operations");
+    }
+
+    // Wrap caches in Arc<RwLock<>> for independent access
+    let schema_cache = Arc::new(tokio::sync::RwLock::new(schema_cache));
+    let openapi_cache = Arc::new(tokio::sync::RwLock::new(openapi_cache));
+
     let app_state = AppState {
         config,
-        schema_cache: SchemaCache::new(),
-        openapi_cache: OpenApiCache::new(),
+        schema_cache: schema_cache.clone(),
+        openapi_cache: openapi_cache.clone(),
         http_client: build_http_client(),
         metrics: metrics.clone(),
     };

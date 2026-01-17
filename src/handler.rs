@@ -19,10 +19,11 @@ use crate::validation::validate;
 
 pub struct AppState {
     pub config: Config,
-    pub schema_cache: SchemaCache,
-    pub openapi_cache: OpenApiCache,
     pub http_client: reqwest::Client,
     pub metrics: Arc<Metrics>,
+    // Separate caches to reduce lock contention - can be accessed independently
+    pub schema_cache: Arc<tokio::sync::RwLock<SchemaCache>>,
+    pub openapi_cache: Arc<tokio::sync::RwLock<OpenApiCache>>,
 }
 
 /// Accumulator for batching metrics updates to reduce lock contention
@@ -181,10 +182,23 @@ impl MetricsAccumulator {
 }
 
 /// Build a reqwest client suitable for the gateway.
+/// Optimized for low latency with connection pooling, keep-alive, and HTTP/2 support.
 /// We disable system proxy lookups to avoid platform-specific panics in tests.
 pub fn build_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .no_proxy()
+        // Connection pooling: reuse connections for better performance
+        .pool_max_idle_per_host(10)
+        .pool_idle_timeout(std::time::Duration::from_secs(90))
+        // HTTP/2 support: enabled by default via ALPN, but configure keep-alive
+        .http2_keep_alive_interval(Some(std::time::Duration::from_secs(30)))
+        .http2_keep_alive_timeout(std::time::Duration::from_secs(10))
+        .http2_keep_alive_while_idle(true)
+        // Timeouts to prevent hanging requests
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
+        // Keep-alive: reuse TCP connections (TCP-level keep-alive)
+        .tcp_keepalive(std::time::Duration::from_secs(60))
         .build()
         .expect("Failed to build HTTP client")
 }
@@ -202,6 +216,7 @@ struct RequestContext {
     parsed_params: tokio::sync::Mutex<Option<ParsedParams>>,
 }
 
+#[derive(Clone)]
 struct ParsedParams {
     path_params: HashMap<String, String>,
     query_params: HashMap<String, Vec<String>>,
@@ -226,6 +241,7 @@ impl RequestContext {
     async fn get_parsed_params(&self, path_template: &str) -> Option<ParsedParams> {
         let mut parsed = self.parsed_params.lock().await;
         if let Some(ref params) = *parsed {
+            // Return a clone only when needed (avoid unnecessary allocation if we can return reference)
             return Some(ParsedParams {
                 path_params: params.path_params.clone(),
                 query_params: params.query_params.clone(),
@@ -239,20 +255,15 @@ impl RequestContext {
         let header_params = build_header_lookup(&self.headers);
         let cookie_params = parse_cookie_header(&self.headers);
 
+        // Store and return without extra clones
         let params = ParsedParams {
-            path_params: path_params.clone(),
-            query_params: query_params.clone(),
-            header_params: header_params.clone(),
-            cookie_params: cookie_params.clone(),
-        };
-
-        *parsed = Some(ParsedParams {
             path_params,
             query_params,
             header_params,
             cookie_params,
-        });
+        };
 
+        *parsed = Some(params.clone());
         Some(params)
     }
 }
@@ -433,6 +444,21 @@ async fn handle_json_schema_validation(
         return forward_without_validation(ctx, state).await;
     }
 
+    // Early exit: check content-type before parsing JSON (avoid parsing non-JSON bodies)
+    if !has_json_content_type(&ctx.headers) {
+        // Not JSON content-type, forward without validation
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "200".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
+        return forward_without_validation(ctx, state).await;
+    }
+
     // Parse JSON using lazy parsing
     let json_value = match ctx.parse_json().await {
         Ok(value) => value,
@@ -465,25 +491,30 @@ async fn handle_json_schema_validation(
         }
     };
 
-    // Try read lock first for cache lookup
+    // Access schema cache independently (reduces lock contention)
     let schema = {
         let state_guard = state.read().await;
-        if let Some(schema) = state_guard.schema_cache.get(&schema_path) {
+        let schema_cache = state_guard.schema_cache.clone();
+        drop(state_guard);
+
+        // Try read lock first for cache lookup
+        let cache_guard = schema_cache.read().await;
+        if let Some(schema) = cache_guard.get(&schema_path) {
             metrics_acc.record_schema_cache_hit();
-            drop(state_guard);
+            drop(cache_guard);
             schema
         } else {
-            drop(state_guard);
+            drop(cache_guard);
             // Cache miss - need write lock to insert
-            let mut state_guard = state.write().await;
             metrics_acc.record_schema_cache_miss();
-            match state_guard.schema_cache.load(&schema_path) {
+            let mut cache_guard = schema_cache.write().await;
+            match cache_guard.load(&schema_path) {
                 Ok(schema) => {
-                    drop(state_guard);
+                    drop(cache_guard);
                     schema
                 }
                 Err(e) => {
-                    drop(state_guard);
+                    drop(cache_guard);
                     let error_msg = format!("{}", e);
                     tracing::warn!(
                         method = %ctx.method,
@@ -607,18 +638,26 @@ async fn handle_openapi_validation(
     let mut metrics_acc = MetricsAccumulator::new();
     metrics_acc.record_validation_attempt("openapi");
 
+    // Access OpenAPI cache independently (reduces lock contention)
     let plan = {
-        let mut state_guard = state.write().await;
-        let result = state_guard.openapi_cache.load_operation(
+        let state_guard = state.read().await;
+        let openapi_cache = state_guard.openapi_cache.clone();
+        drop(state_guard);
+
+        // OpenAPI cache needs write lock for loading operations
+        let mut cache_guard = openapi_cache.write().await;
+        match cache_guard.load_operation(
             &openapi.spec,
             &ctx.path,
             &ctx.method,
             openapi.operation_id.as_deref(),
-        );
-        drop(state_guard);
-        match result {
-            Ok(plan) => plan,
+        ) {
+            Ok(plan) => {
+                drop(cache_guard);
+                plan
+            }
             Err(e) => {
+                drop(cache_guard);
                 let error_msg = format!("{}", e);
                 tracing::warn!(
                     method = %ctx.method,
@@ -723,6 +762,21 @@ async fn handle_openapi_validation(
             return forward_without_validation(ctx, state).await;
         }
     };
+
+    // Early exit: check content-type before parsing JSON (avoid parsing non-JSON bodies)
+    if !has_json_content_type(&ctx.headers) {
+        // Not JSON content-type, forward without validation
+        metrics_acc.record_http_request(
+            method_str.clone(),
+            route_label.clone(),
+            "200".to_string(),
+            start_time.elapsed().as_secs_f64(),
+        );
+        let state_guard = state.read().await;
+        metrics_acc.flush(&state_guard.metrics).await;
+        drop(state_guard);
+        return forward_without_validation(ctx, state).await;
+    }
 
     // Parse JSON using lazy parsing
     let json_value = match ctx.parse_json().await {
@@ -1124,15 +1178,15 @@ async fn validate_openapi_response(
         return response;
     }
 
+    // Early exit if not JSON content type (check before reading body)
+    if !has_json_content_type(response.headers()) {
+        return response;
+    }
+
     let schema = match select_response_schema(&plan.response_schemas, response.status()) {
         Some(schema) => schema,
         None => return response,
     };
-
-    // Early exit if not JSON content type
-    if !has_json_content_type(response.headers()) {
-        return response;
-    }
 
     let (parts, body) = response.into_parts();
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
@@ -1158,9 +1212,11 @@ async fn validate_openapi_response(
         return Response::from_parts(parts, Body::from(body_bytes));
     }
 
-    let mut rebuilt = Response::from_parts(parts, Body::from(body_bytes.clone()));
+    // Parse JSON before rebuilding response to avoid cloning
+    let json_result = serde_json::from_slice::<Value>(&body_bytes);
+    let mut rebuilt = Response::from_parts(parts, Body::from(body_bytes));
 
-    match serde_json::from_slice::<Value>(&body_bytes) {
+    match json_result {
         Ok(json) => match schema.validate(&json) {
             Ok(_) => rebuilt,
             Err(errors) => {

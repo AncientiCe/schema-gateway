@@ -57,6 +57,37 @@ impl SchemaCache {
         self.cache.insert(path_buf, Arc::clone(&arc));
         Ok(arc)
     }
+
+    /// Preload all schemas from the given paths
+    /// Returns a vector of errors for any schemas that failed to load
+    pub fn preload_all<P: AsRef<Path>, I: IntoIterator<Item = P>>(
+        &mut self,
+        paths: I,
+    ) -> Vec<(PathBuf, String)> {
+        let mut errors = Vec::new();
+        for path in paths {
+            let path_buf = PathBuf::from(path.as_ref());
+            if self.cache.contains_key(&path_buf) {
+                // Already loaded, skip
+                continue;
+            }
+            match self.load(&path_buf) {
+                Ok(_) => {
+                    tracing::debug!("Preloaded schema: {}", path_buf.display());
+                }
+                Err(e) => {
+                    let error_msg = format!("{}", e);
+                    errors.push((path_buf, error_msg));
+                    tracing::warn!(
+                        "Failed to preload schema {}: {}",
+                        path.as_ref().display(),
+                        e
+                    );
+                }
+            }
+        }
+        errors
+    }
 }
 
 impl Default for SchemaCache {

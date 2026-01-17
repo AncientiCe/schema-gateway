@@ -174,6 +174,57 @@ impl OpenApiCache {
         self.specs.insert(path.to_path_buf(), Arc::clone(&arc));
         Ok(arc)
     }
+
+    /// Preload OpenAPI operations for the given routes
+    /// Returns a vector of errors for any operations that failed to load
+    pub fn preload_routes(&mut self, routes: &[crate::config::Route]) -> Vec<(String, String)> {
+        let mut errors = Vec::new();
+        for route in routes {
+            if let Some(openapi_opts) = route.openapi_options() {
+                // Parse the HTTP method
+                let method = match Method::from_bytes(route.method.as_bytes()) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        errors.push((
+                            format!("{} {}", route.method, route.path),
+                            format!("Invalid HTTP method: {}", route.method),
+                        ));
+                        continue;
+                    }
+                };
+
+                // Try to load the operation
+                match self.load_operation(
+                    &openapi_opts.spec,
+                    &route.path,
+                    &method,
+                    openapi_opts.operation_id.as_deref(),
+                ) {
+                    Ok(_) => {
+                        tracing::debug!(
+                            "Preloaded OpenAPI operation: {} {}",
+                            route.method,
+                            route.path
+                        );
+                    }
+                    Err(e) => {
+                        let error_msg = format!("{}", e);
+                        errors.push((
+                            format!("{} {}", route.method, route.path),
+                            error_msg.clone(),
+                        ));
+                        tracing::warn!(
+                            "Failed to preload OpenAPI operation {} {}: {}",
+                            route.method,
+                            route.path,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        errors
+    }
 }
 
 struct OperationMatch {

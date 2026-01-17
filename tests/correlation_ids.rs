@@ -34,8 +34,8 @@ async fn create_test_server(config_content: &str) -> (MockServer, u16) {
     let metrics = Arc::new(Metrics::new().expect("create metrics"));
     let app_state = AppState {
         config,
-        schema_cache: SchemaCache::new(),
-        openapi_cache: OpenApiCache::new(),
+        schema_cache: Arc::new(tokio::sync::RwLock::new(SchemaCache::new())),
+        openapi_cache: Arc::new(tokio::sync::RwLock::new(OpenApiCache::new())),
         http_client: build_http_client(),
         metrics,
     };
