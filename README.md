@@ -569,7 +569,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Roadmap
 
-Current version: **0.4.0** (MVP)
+Current version: **0.4.1** (MVP)
 
 Completed:
 - ✅ JSON Schema validation

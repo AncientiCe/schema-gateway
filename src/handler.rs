@@ -147,7 +147,7 @@ impl MetricsAccumulator {
         if let Some(duration) = self.upstream_duration {
             metrics
                 .upstream_request_duration_seconds
-                .with_label_values(&[])
+                .with_label_values(&[] as &[&str])
                 .observe(duration);
         }
 

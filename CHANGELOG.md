@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-01-14
+## [0.4.1] - 2026-01-17
+
+### Security
+- **Fixed protobuf vulnerability** - Upgraded `prometheus` from 0.13 to 0.14 to resolve RUSTSEC-2024-0437
+  - Updated `protobuf` dependency from 2.28.0 to 3.7.2
+  - Fixed breaking change in prometheus 0.14 API (type annotation for empty label values)
+
+## [0.4.0] - 2026-01-17
 
 ### Added
 - **Graceful Shutdown** - Handle SIGTERM/SIGINT signals for zero-downtime deployments
@@ -23,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Updated `tower-http` dependency to include `set-header` feature for security headers
 
-## [0.3.0] - 2026-01-14
+## [0.3.0] - 2026-01-17
 
 ### Performance
 - **Validation cost reductions** - Optimized schema validation to reduce computational overhead
@@ -86,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD pipeline with GitHub Actions
 - Cross-platform support (Linux, macOS, Windows)
 
+[0.4.1]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.4.1
 [0.4.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.4.0
 [0.3.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.3.0
 [0.2.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.2.0
