@@ -564,11 +564,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, code style guid
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Roadmap
 
-Current version: **0.2.0** (MVP)
+Current version: **0.3.0** (MVP)
 
 Completed:
 - ✅ JSON Schema validation
@@ -580,7 +580,7 @@ Completed:
 - ✅ Health check endpoints
 - ✅ OpenAPI support
 
-Future enhancements (not in MVP):
+Not yet relevant additions:
 - 🔮 Schema hot-reloading
 - 🔮 Rate limiting
 - 🔮 Request/response transformations
