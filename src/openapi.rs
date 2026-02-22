@@ -1,5 +1,5 @@
 use axum::http::Method;
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -10,12 +10,12 @@ use crate::error::{Error, Result};
 
 #[derive(Clone)]
 pub struct OperationValidationPlan {
-    pub schema: Option<Arc<JSONSchema>>,
+    pub schema: Option<Arc<Validator>>,
     pub body_required: bool,
     pub method: String,
     pub path_template: String,
     pub parameters: Vec<ParameterValidator>,
-    pub response_schemas: HashMap<ResponseKey, Arc<JSONSchema>>,
+    pub response_schemas: HashMap<ResponseKey, Arc<Validator>>,
 }
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ pub struct ParameterValidator {
     pub name: String,
     pub location: ParameterLocation,
     pub required: bool,
-    pub schema: Option<Arc<JSONSchema>>,
+    pub schema: Option<Arc<Validator>>,
     value_type: Option<PrimitiveType>,
 }
 
@@ -123,7 +123,7 @@ impl OpenApiCache {
         let schema_arc = if let Some(schema_value) = operation.schema {
             let resolved_schema = resolve_schema_value(&schema_value, spec.as_ref(), &path_buf)?;
             let compiled =
-                JSONSchema::compile(&resolved_schema).map_err(|e| Error::InvalidOpenApi {
+                jsonschema::validator_for(&resolved_schema).map_err(|e| Error::InvalidOpenApi {
                     path: path_buf.clone(),
                     message: e.to_string(),
                 })?;
@@ -612,12 +612,12 @@ fn compile_parameter_validators(
     for spec in specs {
         let primitive = spec.schema.as_ref().and_then(detect_primitive_type);
         let schema_arc = match spec.schema {
-            Some(schema_value) => Some(Arc::new(JSONSchema::compile(&schema_value).map_err(
-                |e| Error::InvalidOpenApi {
+            Some(schema_value) => Some(Arc::new(
+                jsonschema::validator_for(&schema_value).map_err(|e| Error::InvalidOpenApi {
                     path: spec_path.to_path_buf(),
                     message: e.to_string(),
-                },
-            )?)),
+                })?,
+            )),
             None => None,
         };
 
@@ -635,16 +635,15 @@ fn compile_parameter_validators(
 fn compile_response_schemas(
     responses: HashMap<ResponseKey, Value>,
     spec_path: &Path,
-) -> Result<HashMap<ResponseKey, Arc<JSONSchema>>> {
+) -> Result<HashMap<ResponseKey, Arc<Validator>>> {
     let mut compiled = HashMap::new();
     for (key, schema_value) in responses {
-        let schema =
-            Arc::new(
-                JSONSchema::compile(&schema_value).map_err(|e| Error::InvalidOpenApi {
-                    path: spec_path.to_path_buf(),
-                    message: e.to_string(),
-                })?,
-            );
+        let schema = Arc::new(jsonschema::validator_for(&schema_value).map_err(|e| {
+            Error::InvalidOpenApi {
+                path: spec_path.to_path_buf(),
+                message: e.to_string(),
+            }
+        })?);
         compiled.insert(key, schema);
     }
     Ok(compiled)

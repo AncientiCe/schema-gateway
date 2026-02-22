@@ -49,7 +49,7 @@ async fn create_test_server(config_content: &str) -> (MockServer, u16) {
         .route("/health", axum::routing::get(health_handler))
         .route("/health/ready", axum::routing::get(readiness_handler))
         .route("/health/live", axum::routing::get(liveness_handler))
-        .route("/*path", axum::routing::any(handler))
+        .route("/{*path}", axum::routing::any(handler))
         .with_state(shared_state)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {

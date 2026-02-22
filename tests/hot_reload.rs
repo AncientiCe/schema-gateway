@@ -56,7 +56,7 @@ async fn create_server_with_watcher(
 
     let app =
         axum::Router::new()
-            .route("/*path", axum::routing::any(handler))
+            .route("/{*path}", axum::routing::any(handler))
             .with_state(shared_state)
             .layer(TraceLayer::new_for_http().make_span_with(
                 |_request: &axum::http::Request<_>| tracing::info_span!("http_request"),

@@ -2,7 +2,7 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -1087,13 +1087,8 @@ async fn validate_openapi_parameters(
             }
         };
 
-        let validation_error = schema.validate(&coerced_value).err();
-        if let Some(mut errors) = validation_error {
-            let first_error = errors
-                .next()
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "Parameter validation failed".to_string());
-            drop(errors);
+        if let Err(e) = schema.validate(&coerced_value) {
+            let first_error = e.to_string();
             let error_msg = format!("Parameter '{}' invalid: {}", param.name, first_error);
             return Err(handle_error(
                 &error_msg,
@@ -1229,10 +1224,11 @@ async fn validate_openapi_response(
     let mut rebuilt = Response::from_parts(parts, Body::from(body_bytes));
 
     match json_result {
-        Ok(json) => match schema.validate(&json) {
-            Ok(_) => rebuilt,
-            Err(errors) => {
-                let messages: Vec<String> = errors.map(|e| e.to_string()).collect();
+        Ok(json) => {
+            let messages: Vec<String> = schema.iter_errors(&json).map(|e| e.to_string()).collect();
+            if messages.is_empty() {
+                rebuilt
+            } else {
                 let error_msg = format!(
                     "OpenAPI response validation failed: {}",
                     messages.join(", ")
@@ -1254,7 +1250,7 @@ async fn validate_openapi_response(
                         .into_response()
                 }
             }
-        },
+        }
         Err(e) => {
             let error_msg = format!("Invalid JSON in upstream response: {}", e);
             tracing::warn!(
@@ -1278,9 +1274,9 @@ async fn validate_openapi_response(
 }
 
 fn select_response_schema(
-    map: &HashMap<ResponseKey, Arc<JSONSchema>>,
+    map: &HashMap<ResponseKey, Arc<Validator>>,
     status: StatusCode,
-) -> Option<Arc<JSONSchema>> {
+) -> Option<Arc<Validator>> {
     map.get(&ResponseKey::Status(status.as_u16()))
         .map(Arc::clone)
         .or_else(|| map.get(&ResponseKey::Default).map(Arc::clone))

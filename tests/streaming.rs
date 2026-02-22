@@ -47,7 +47,7 @@ async fn create_test_server_with_large_response(
 
     let app =
         axum::Router::new()
-            .route("/*path", axum::routing::any(handler))
+            .route("/{*path}", axum::routing::any(handler))
             .with_state(shared_state)
             .layer(TraceLayer::new_for_http().make_span_with(
                 |_request: &axum::http::Request<_>| tracing::info_span!("http_request"),
@@ -168,7 +168,7 @@ routes:
         .await;
 
     let app = axum::Router::new()
-        .route("/*path", axum::routing::any(handler))
+        .route("/{*path}", axum::routing::any(handler))
         .with_state(shared_state)
         .layer(PropagateRequestIdLayer::new(
             axum::http::HeaderName::from_static("x-request-id"),

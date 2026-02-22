@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
-use jsonschema::JSONSchema;
+use jsonschema::Validator;
 use serde_json::Value;
 
 pub struct SchemaCache {
-    pub cache: HashMap<PathBuf, Arc<JSONSchema>>,
+    pub cache: HashMap<PathBuf, Arc<Validator>>,
 }
 
 impl SchemaCache {
@@ -19,12 +19,12 @@ impl SchemaCache {
     }
 
     /// Get schema from cache (read-only, no lock needed if called on &self)
-    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<JSONSchema>> {
+    pub fn get<P: AsRef<Path>>(&self, path: P) -> Option<Arc<Validator>> {
         let path_buf = PathBuf::from(path.as_ref());
         self.cache.get(&path_buf).map(Arc::clone)
     }
 
-    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<Arc<JSONSchema>> {
+    pub fn load<P: AsRef<Path>>(&mut self, path: P) -> Result<Arc<Validator>> {
         let path_ref = path.as_ref();
         let path_buf = PathBuf::from(path_ref);
 
@@ -48,10 +48,11 @@ impl SchemaCache {
                 source: e,
             })?;
 
-        let compiled = JSONSchema::compile(&value).map_err(|e| Error::InvalidSchemaSyntax {
-            path: path_buf.clone(),
-            message: e.to_string(),
-        })?;
+        let compiled =
+            jsonschema::validator_for(&value).map_err(|e| Error::InvalidSchemaSyntax {
+                path: path_buf.clone(),
+                message: e.to_string(),
+            })?;
 
         let arc = Arc::new(compiled);
         self.cache.insert(path_buf, Arc::clone(&arc));

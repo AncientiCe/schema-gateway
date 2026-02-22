@@ -43,7 +43,7 @@ async fn create_test_server(config_content: &str) -> (MockServer, u16) {
     let shared_state = Arc::new(RwLock::new(app_state));
 
     let app = axum::Router::new()
-        .route("/*path", axum::routing::any(handler))
+        .route("/{*path}", axum::routing::any(handler))
         .with_state(shared_state)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {

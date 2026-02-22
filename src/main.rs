@@ -135,7 +135,7 @@ async fn main() {
         .route("/health", get(health::health))
         .route("/health/ready", get(health::readiness))
         .route("/health/live", get(health::liveness))
-        .route("/*path", any(handler))
+        .route("/{*path}", any(handler))
         .with_state(shared_state)
         // Add request IDs + request tracing for observability/adoption.
         //
