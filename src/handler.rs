@@ -13,7 +13,7 @@ use url::form_urlencoded;
 use crate::config::{Config, GlobalConfig, OpenApiOptions};
 use crate::metrics::Metrics;
 use crate::openapi::{OpenApiCache, OperationValidationPlan, ParameterLocation, ResponseKey};
-use crate::proxy::forward_request;
+use crate::proxy::{forward_request_buffered, forward_request_streaming};
 use crate::schema::SchemaCache;
 use crate::validation::validate;
 
@@ -384,10 +384,10 @@ async fn forward_without_validation(
     let mut metrics_acc = MetricsAccumulator::new();
     metrics_acc.record_validation_attempt("none");
 
-    // Forward request and record upstream metrics
+    // Forward request and record upstream metrics (streaming; no response validation)
     let upstream_start = Instant::now();
     let state_guard = state.read().await;
-    let response = forward_request(
+    let response = forward_request_streaming(
         &state_guard.http_client,
         ctx.method.clone(),
         &ctx.upstream_url,
@@ -565,10 +565,10 @@ async fn handle_json_schema_validation(
             }
         }
 
-        // Forward request and record upstream metrics
+        // Forward request and record upstream metrics (streaming; no response validation)
         let upstream_start = Instant::now();
         let state_guard = state.read().await;
-        let response = forward_request(
+        let response = forward_request_streaming(
             &state_guard.http_client,
             ctx.method.clone(),
             &ctx.upstream_url,
@@ -830,18 +830,30 @@ async fn handle_openapi_validation(
             }
         }
 
-        // Forward request and record upstream metrics
+        // Forward request: stream when no response validation, buffer when validating response
         let upstream_start = Instant::now();
         let state_guard = state.read().await;
-        let response = forward_request(
-            &state_guard.http_client,
-            ctx.method.clone(),
-            &ctx.upstream_url,
-            &ctx.path_and_query,
-            forwarding_headers,
-            ctx.body_bytes.to_vec(),
-        )
-        .await;
+        let response = if plan.response_schemas.is_empty() {
+            forward_request_streaming(
+                &state_guard.http_client,
+                ctx.method.clone(),
+                &ctx.upstream_url,
+                &ctx.path_and_query,
+                forwarding_headers,
+                ctx.body_bytes.to_vec(),
+            )
+            .await
+        } else {
+            forward_request_buffered(
+                &state_guard.http_client,
+                ctx.method.clone(),
+                &ctx.upstream_url,
+                &ctx.path_and_query,
+                forwarding_headers,
+                ctx.body_bytes.to_vec(),
+            )
+            .await
+        };
         let upstream_duration = upstream_start.elapsed().as_secs_f64();
         drop(state_guard);
 
@@ -927,10 +939,10 @@ async fn handle_error(
             }
         }
 
-        // Forward request and record upstream metrics
+        // Forward request and record upstream metrics (streaming; no response validation)
         let upstream_start = Instant::now();
         let state_guard = state.read().await;
-        let response = forward_request(
+        let response = forward_request_streaming(
             &state_guard.http_client,
             ctx.method.clone(),
             &ctx.upstream_url,

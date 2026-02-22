@@ -3,7 +3,7 @@
 [![CI](https://github.com/AncientiCe/schema-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/AncientiCe/schema-gateway/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.0+-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-0.4.1-blue.svg)](https://github.com/AncientiCe/schema-gateway)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](https://github.com/AncientiCe/schema-gateway)
 
 
 A lightweight, composable schema validation proxy written in Rust that validates JSON requests against JSON Schema or OpenAPI operations before forwarding them to upstream services.
@@ -17,6 +17,8 @@ A lightweight, composable schema validation proxy written in Rust that validates
 - ⚡ **High Performance** - Built with Rust, Tokio, and Axum for maximum throughput
 - 🎯 **Path Parameters** - Support for dynamic routes with path parameters (e.g., `/api/users/:id`)
 - 🔧 **Easy Configuration** - Simple YAML-based configuration with sensible defaults
+- 📡 **Streaming Proxy** - Upstream responses are streamed to clients (no full-body buffering) unless OpenAPI response validation is used
+- 🔄 **Hot-Reload** - Config and schema file changes are applied without restart (disable with `--no-watch`)
 - 🧪 **Well Tested** - Comprehensive test suite with TDD methodology
 
 ## Quick Start
@@ -260,6 +262,7 @@ OPTIONS:
   -c, --config <FILE>     Path to config file [default: config.yml]
   -p, --port <PORT>       Port to listen on [default: 8080]
   --validate-config       Validate config and exit (doesn't start server)
+  --no-watch              Disable file watching and hot-reloading
   -h, --help              Print help
   -V, --version           Print version
 ```
@@ -575,7 +578,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Roadmap
 
-Current version: **0.4.1**
+Current version: **0.5.0**
 
 Completed:
 - ✅ JSON Schema validation
@@ -588,9 +591,10 @@ Completed:
 - ✅ OpenAPI support
 - ✅ Graceful shutdown (SIGTERM/SIGINT)
 - ✅ Security headers
+- ✅ Streaming response proxy (large upstream responses streamed without full buffering)
+- ✅ Schema & config hot-reloading (use `--no-watch` to disable)
 
 Not yet relevant additions:
-- 🔮 Schema hot-reloading
 - 🔮 Rate limiting
 - 🔮 Request/response transformations
 

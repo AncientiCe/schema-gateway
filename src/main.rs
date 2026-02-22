@@ -11,6 +11,7 @@ use schema_gateway::health;
 use schema_gateway::metrics::Metrics;
 use schema_gateway::openapi::OpenApiCache;
 use schema_gateway::schema::SchemaCache;
+use schema_gateway::watcher;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::RwLock;
@@ -117,6 +118,16 @@ async fn main() {
     };
 
     let shared_state = Arc::new(RwLock::new(app_state));
+
+    let _watcher_handle = if cli.no_watch {
+        None
+    } else {
+        tracing::info!("file watching enabled (use --no-watch to disable)");
+        Some(watcher::start_watcher(
+            cli.config.clone(),
+            shared_state.clone(),
+        ))
+    };
 
     // Create axum router with metrics, health, and main handler routes
     let app = Router::new()

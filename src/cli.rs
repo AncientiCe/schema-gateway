@@ -17,6 +17,10 @@ pub struct Cli {
     /// Validate config and exit
     #[arg(long)]
     pub validate_config: bool,
+
+    /// Disable file watching and hot-reloading
+    #[arg(long)]
+    pub no_watch: bool,
 }
 
 impl Cli {
@@ -36,10 +40,12 @@ mod tests {
             config: PathBuf::from("config.yml"),
             port: 8080,
             validate_config: false,
+            no_watch: false,
         };
 
         assert_eq!(cli.config, PathBuf::from("config.yml"));
         assert_eq!(cli.port, 8080);
         assert!(!cli.validate_config);
+        assert!(!cli.no_watch);
     }
 }

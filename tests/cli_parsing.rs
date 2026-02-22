@@ -11,6 +11,7 @@ fn test_default_arguments() {
         config: PathBuf::from("config.yml"),
         port: 8080,
         validate_config: false,
+        no_watch: false,
     };
 
     assert_eq!(cli.config, PathBuf::from("config.yml"));
@@ -28,6 +29,7 @@ fn test_custom_config_path() {
         config: PathBuf::from("custom.yml"),
         port: 8080,
         validate_config: false,
+        no_watch: false,
     };
 
     assert_eq!(cli.config, PathBuf::from("custom.yml"));
@@ -43,6 +45,7 @@ fn test_custom_port() {
         config: PathBuf::from("config.yml"),
         port: 3000,
         validate_config: false,
+        no_watch: false,
     };
 
     assert_eq!(cli.port, 3000);
@@ -58,6 +61,7 @@ fn test_validate_config_mode() {
         config: PathBuf::from("config.yml"),
         port: 8080,
         validate_config: true,
+        no_watch: false,
     };
 
     assert!(cli.validate_config);

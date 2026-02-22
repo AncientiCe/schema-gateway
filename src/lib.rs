@@ -8,3 +8,4 @@ pub mod openapi;
 pub mod proxy;
 pub mod schema;
 pub mod validation;
+pub mod watcher;

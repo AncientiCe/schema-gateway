@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-22
+
+### Added
+- **Streaming Response Proxy** - Upstream responses are streamed to the client instead of buffered in memory
+  - Reduces memory footprint for large payloads
+  - Uses `forward_request_streaming` by default; buffering only when OpenAPI response validation is enabled
+- **Schema & Config Hot-Reloading** - Reload config and schemas on file change without restart
+  - Watches the config file and all referenced schema/OpenAPI spec paths (via `notify` + debouncer)
+  - Atomic swap of config and caches; in-flight requests complete with the previous state
+  - Use `--no-watch` to disable file watching
+
+### Changed
+- Response proxying now uses streaming by default; add `stream` and `futures-util` dependencies
+
 ## [0.4.1] - 2026-01-17
 
 ### Security
@@ -93,6 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI/CD pipeline with GitHub Actions
 - Cross-platform support (Linux, macOS, Windows)
 
+[0.5.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.5.0
 [0.4.1]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.4.1
 [0.4.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.4.0
 [0.3.0]: https://github.com/AncientiCe/schema-gateway/releases/tag/v0.3.0

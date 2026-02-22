@@ -109,6 +109,40 @@ impl Config {
                 .unwrap_or(self.global.add_validation_header),
         }
     }
+
+    /// Returns all file paths that should be watched for hot-reload: the config file itself,
+    /// plus every referenced schema and OpenAPI spec path. Relative paths are resolved
+    /// against the config file's parent directory.
+    pub fn watched_paths(&self, config_file: &Path) -> Vec<PathBuf> {
+        let config_dir = config_file
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+
+        let mut paths = vec![config_file.to_path_buf()];
+
+        for route in &self.routes {
+            if let Some(ref schema_path) = route.schema {
+                let resolved = if schema_path.is_relative() {
+                    config_dir.join(schema_path)
+                } else {
+                    schema_path.clone()
+                };
+                paths.push(resolved);
+            }
+            if let Some(ref openapi_source) = route.openapi {
+                let spec_path = openapi_source.to_options().spec;
+                let resolved = if spec_path.is_relative() {
+                    config_dir.join(spec_path)
+                } else {
+                    spec_path
+                };
+                paths.push(resolved);
+            }
+        }
+
+        paths
+    }
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
